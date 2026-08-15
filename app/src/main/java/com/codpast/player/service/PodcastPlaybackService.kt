@@ -5,11 +5,16 @@ import android.content.Intent
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
 import com.codpast.player.data.repository.PlaybackProgressManager
+import com.google.common.collect.ImmutableList
+import com.google.common.util.concurrent.Futures
+import com.google.common.util.concurrent.ListenableFuture
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -33,37 +38,43 @@ class PodcastPlaybackService : MediaLibraryService() {
     override fun onCreate() {
         super.onCreate()
 
-        player = ExoPlayer.Builder(this)
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setContentType(C.AUDIO_CONTENT_TYPE_SPEECH)
-                    .setUsage(C.USAGE_MEDIA)
-                    .build(),
-                true
-            )
-            .setHandleAudioBecomingNoisy(true)
+        // 1. Configure ExoPlayer explicitly for spoken audio (pitch-preserved speech)
+        val audioAttributes = AudioAttributes.Builder()
+            .setContentType(C.AUDIO_CONTENT_TYPE_SPEECH)
+            .setUsage(C.USAGE_MEDIA)
             .build()
 
-        setupPlayerListeners()
-        startMemoryTicker()
+        player = ExoPlayer.Builder(this)
+            .setAudioAttributes(audioAttributes, true)
+            .setHandleAudioBecomingNoisy(true) // Automatically pause when headphones disconnect
+            .build()
 
-        // MediaLibrarySession Tree setup omitted for brevity
-        mediaLibrarySession = MediaLibrarySession.Builder(this, player, object : MediaLibrarySession.Callback {}).build()
+        // 2. Attach lifecycle listeners for progress persistence triggers
+        setupPlayerListeners()
+
+        // 3. Construct the MediaLibrarySession for system & Android Auto integration
+        mediaLibrarySession = MediaLibrarySession.Builder(
+            this,
+            player,
+            AndroidAutoTreeCallback()
+        ).build()
+
+        // 4. Start the 500ms ticker for smooth UI position updates
+        startMemoryTicker()
     }
 
     private fun setupPlayerListeners() {
         player.addListener(object : Player.Listener {
-
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 if (!isPlaying) {
-                    // Trigger: Playback transitions to PAUSED
+                    // Bypass 5000ms timer & flush immediately to disk when paused
                     progressManager.triggerImmediateFlush()
                 }
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_ENDED || playbackState == Player.STATE_IDLE) {
-                    // Trigger: Playback transitions to STOPPED or ENDED
+                    // Immediate flush on track end or player stop
                     progressManager.triggerImmediateFlush()
                 }
             }
@@ -75,20 +86,19 @@ class PodcastPlaybackService : MediaLibraryService() {
             ) {
                 if (reason == Player.DISCONTINUITY_REASON_SEEK ||
                     reason == Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT) {
-                    // Trigger: Manual user SeekTo actions
+                    // Immediate flush on manual scrubber seeks
                     progressManager.triggerImmediateFlush()
                 }
             }
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                // Trigger: Track change or queue skip (Also handled securely inside the Manager)
+                // Immediate flush when switching episodes
                 progressManager.triggerImmediateFlush()
             }
         })
     }
 
     private fun startMemoryTicker() {
-        // UI Ticker: Runs continuously while service is alive, emitting updates every 500ms
         serviceScope.launch {
             while (isActive) {
                 if (player.isPlaying) {
@@ -107,16 +117,68 @@ class PodcastPlaybackService : MediaLibraryService() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
-        // Trigger: User swiped the app away in recent apps
+        // User swiped app away from recent tasks -> force synchronous DB flush
         progressManager.onTeardown()
     }
 
     override fun onDestroy() {
-        // Trigger: Service is being destroyed by the system
+        // System killing service -> force synchronous DB flush and clean up resources
         progressManager.onTeardown()
-
         mediaLibrarySession.release()
         player.release()
         super.onDestroy()
+    }
+
+    /**
+     * Serves the 3-Tier Media Tree navigation for Android Auto dashboard integration.
+     */
+    private inner class AndroidAutoTreeCallback : MediaLibrarySession.Callback {
+        private val rootItem = buildBrowsableMediaItem("root_id", "Codpast")
+        private val subscribedItem = buildBrowsableMediaItem("tier_subscriptions", "Subscribed Podcasts")
+        private val upNextItem = buildBrowsableMediaItem("tier_up_next", "Up Next Queue")
+        private val downloadedItem = buildBrowsableMediaItem("tier_downloads", "Downloaded Episodes")
+
+        private fun buildBrowsableMediaItem(id: String, title: String): MediaItem {
+            return MediaItem.Builder()
+                .setMediaId(id)
+                .setMediaMetadata(
+                    MediaMetadata.Builder()
+                        .setIsBrowsable(true)
+                        .setIsPlayable(false)
+                        .setTitle(title)
+                        .build()
+                ).build()
+        }
+
+        override fun onGetLibraryRoot(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            params: LibraryParams?
+        ): ListenableFuture<LibraryResult<MediaItem>> {
+            return Futures.immediateFuture(LibraryResult.ofItem(rootItem, params))
+        }
+
+        override fun onGetChildren(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            parentId: String,
+            page: Int,
+            pageSize: Int,
+            params: LibraryParams?
+        ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
+            return when (parentId) {
+                "root_id" -> Futures.immediateFuture(
+                    LibraryResult.ofItemList(
+                        ImmutableList.of(subscribedItem, upNextItem, downloadedItem),
+                        params
+                    )
+                )
+                "tier_subscriptions", "tier_up_next", "tier_downloads" -> {
+                    // DB queries can be wired here to return playable MediaItems
+                    Futures.immediateFuture(LibraryResult.ofItemList(ImmutableList.of(), params))
+                }
+                else -> Futures.immediateFuture(LibraryResult.ofError(androidx.media3.session.SessionError.ERROR_BAD_VALUE))
+            }
+        }
     }
 }
