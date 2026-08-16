@@ -1,5 +1,8 @@
 package com.codpast.player.ui.screens
+import androidx.compose.ui.res.painterResource
+import com.codpast.player.R
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -39,7 +42,8 @@ import com.codpast.player.ui.mvi.SearchIntent
 
 @Composable
 fun SearchScreen(
-    viewModel: SearchViewModel = hiltViewModel()
+    viewModel: SearchViewModel = hiltViewModel(),
+    onNavigateToDetail: (String) -> Unit // Added callback
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
 
@@ -95,6 +99,7 @@ fun SearchScreen(
                         ) { podcast ->
                             SearchResultItem(
                                 podcast = podcast,
+                                onClick = { onNavigateToDetail(podcast.feedUrl) }, // Wire row click
                                 onSubscribeToggle = {
                                     if (podcast.isSubscribed) {
                                         viewModel.onIntent(SearchIntent.Unsubscribe(podcast))
@@ -114,11 +119,13 @@ fun SearchScreen(
 @Composable
 fun SearchResultItem(
     podcast: PodcastSearchResult,
+    onClick: () -> Unit, // Accept click action
     onSubscribeToggle: () -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .clickable { onClick() } // Make the whole row clickable
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -127,6 +134,8 @@ fun SearchResultItem(
             model = podcast.artworkUrl,
             contentDescription = "Artwork for ${podcast.title}",
             contentScale = ContentScale.Crop,
+            placeholder = painterResource(id = R.mipmap.ic_launcher),
+            error = painterResource(id = R.mipmap.ic_launcher),
             modifier = Modifier
                 .size(64.dp)
                 .clip(RoundedCornerShape(8.dp))

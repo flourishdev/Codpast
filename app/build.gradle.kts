@@ -50,10 +50,6 @@ android {
 
     buildFeatures {
         compose = true
-    }
-
-    buildFeatures {
-        compose = true
         buildConfig = true // 3. Enable BuildConfig generation
     }
 
@@ -71,6 +67,9 @@ dependencies {
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
+
+    // Splash Screen
+    implementation(libs.androidx.core.splashscreen)
 
     // Room
     implementation(libs.room.runtime)

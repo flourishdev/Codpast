@@ -10,6 +10,7 @@ data class EpisodeEntity(
     @PrimaryKey val id: String,
     val podcastId: String,
     val title: String,
+    val description: String = "",
     val audioUrl: String,
     val imageUrl: String,
     val duration: Long,

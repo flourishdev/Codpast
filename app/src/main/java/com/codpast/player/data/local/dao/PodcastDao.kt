@@ -28,4 +28,10 @@ interface PodcastDao {
 
     @Query("SELECT * FROM podcasts WHERE isSubscribed = 1")
     suspend fun getSubscribedPodcastsSnapshot(): List<PodcastEntity>
+
+    @Query("SELECT * FROM podcasts WHERE id = :podcastId")
+    fun getPodcastById(podcastId: String): Flow<PodcastEntity?>
+
+    @Query("SELECT * FROM episodes WHERE id = :episodeId")
+    fun getEpisodeById(episodeId: String): Flow<EpisodeEntity?>
 }

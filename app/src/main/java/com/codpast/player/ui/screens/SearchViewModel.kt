@@ -95,7 +95,23 @@ class SearchViewModel @Inject constructor(
         try {
             if (query.startsWith("http://") || query.startsWith("https://")) {
                 // Route to RSS Fallback
-                repository.searchOrParse(query) // From previous step
+                val parsedPodcast = repository.parseRssUrl(query)
+
+                if (parsedPodcast != null) {
+                    // Map the parsed entity to our UI Search Result model
+                    _searchResults.value = listOf(
+                        PodcastSearchResult(
+                            id = parsedPodcast.id,
+                            title = parsedPodcast.title,
+                            author = parsedPodcast.description,
+                            feedUrl = parsedPodcast.feedUrl,
+                            artworkUrl = parsedPodcast.artworkUrl
+                        )
+                    )
+                } else {
+                    _searchResults.value = emptyList()
+                    _state.update { it.copy(errorMessage = "Could not parse RSS feed") }
+                }
                 _state.update { it.copy(isLoading = false) }
             } else {
                 // Standard API Search
@@ -107,8 +123,8 @@ class SearchViewModel @Inject constructor(
                         id = feed.id?.toString() ?: "",
                         title = feed.title ?: "Unknown Title",
                         author = feed.author ?: "Unknown Author",
-                        feedUrl = feed.feedUrl ?: "",       // Updated to match your DTO
-                        artworkUrl = feed.artworkUrl ?: ""  // Updated to match your DTO
+                        feedUrl = feed.feedUrl ?: "",
+                        artworkUrl = feed.artworkUrl ?: ""
                     )
                 }
                 _searchResults.value = mapped

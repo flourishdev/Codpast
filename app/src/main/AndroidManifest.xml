@@ -12,7 +12,11 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.AppCompat.DayNight.NoActionBar">
+        android:theme="@style/Theme.App.Starting">
+
+        <meta-data
+            android:name="androidx.media3.session.NOTIFICATION_SMALL_ICON"
+            android:resource="@drawable/ic_launcher_foreground" />
 
         <!-- MAKE SURE THIS ACTIVITY BLOCK IS PRESENT -->
         <activity
