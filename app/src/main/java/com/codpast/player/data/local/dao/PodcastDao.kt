@@ -25,4 +25,7 @@ interface PodcastDao {
 
     @Query("UPDATE episodes SET playbackPosition = :position WHERE id = :episodeId")
     suspend fun updatePlaybackPosition(episodeId: String, position: Long)
+
+    @Query("SELECT * FROM podcasts WHERE isSubscribed = 1")
+    suspend fun getSubscribedPodcastsSnapshot(): List<PodcastEntity>
 }

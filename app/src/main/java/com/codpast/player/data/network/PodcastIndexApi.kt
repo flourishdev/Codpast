@@ -6,7 +6,9 @@ import retrofit2.http.Query
 
 interface PodcastIndexApi {
 
-    @GET("api/1.0/search/byterm")
+    // CORRECT: No leading slash!
+    // It will append correctly to create: .../api/1.0/search/byterm
+    @GET("search/byterm")
     suspend fun searchPodcasts(
         @Query("q") query: String
     ): PodcastSearchResponse

@@ -9,9 +9,10 @@ data class PodcastSearchResponse(
 )
 
 data class PodcastNetworkDto(
-    @SerializedName("id") val id: Long,
-    @SerializedName("title") val title: String,
-    @SerializedName("description") val description: String,
-    @SerializedName("url") val feedUrl: String,
-    @SerializedName("image") val artworkUrl: String
+    @SerializedName("id") val id: Long?,
+    @SerializedName("title") val title: String?,
+    @SerializedName("author") val author: String?, // Fixed the SerializedName here
+    @SerializedName("description") val description: String?,
+    @SerializedName("url") val feedUrl: String?,
+    @SerializedName("image") val artworkUrl: String?
 )

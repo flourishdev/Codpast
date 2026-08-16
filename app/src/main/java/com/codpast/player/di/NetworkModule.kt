@@ -1,6 +1,6 @@
-// File: com/codpast/player/di/NetworkModule.kt
 package com.codpast.player.di
 
+import com.codpast.player.BuildConfig
 import com.codpast.player.data.network.PodcastIndexApi
 import com.codpast.player.data.network.PodcastIndexInterceptor
 import dagger.Module
@@ -17,38 +17,40 @@ import javax.inject.Singleton
 @InstallIn(SingletonComponent::class)
 object NetworkModule {
 
+    // 1. Hilt builds the Interceptor here
     @Provides
     @Singleton
-    fun provideOkHttpClient(): OkHttpClient {
-        // TODO in production: Move these keys to BuildConfig or local.properties
-        val interceptor = PodcastIndexInterceptor(
-            apiKey = "YOUR_API_KEY",
-            apiSecret = "YOUR_API_SECRET"
+    fun providePodcastIndexInterceptor(): PodcastIndexInterceptor {
+        return PodcastIndexInterceptor(
+            apiKey = BuildConfig.PODCAST_API_KEY,
+            apiSecret = BuildConfig.PODCAST_API_SECRET
         )
+    }
 
+    // 2. Hilt injects the Interceptor into the OkHttpClient here
+    @Provides
+    @Singleton
+    fun provideOkHttpClient(
+        authInterceptor: PodcastIndexInterceptor
+    ): OkHttpClient {
         val logging = HttpLoggingInterceptor().apply {
             level = HttpLoggingInterceptor.Level.BODY
         }
 
         return OkHttpClient.Builder()
-            .addInterceptor(interceptor)
+            .addInterceptor(authInterceptor)
             .addInterceptor(logging)
             .build()
     }
 
     @Provides
     @Singleton
-    fun provideRetrofit(okHttpClient: OkHttpClient): Retrofit {
+    fun providePodcastIndexApi(okHttpClient: OkHttpClient): PodcastIndexApi {
         return Retrofit.Builder()
-            .baseUrl("https://api.podcastindex.org/")
+            .baseUrl("https://api.podcastindex.org/api/1.0/")
             .client(okHttpClient)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
-    }
-
-    @Provides
-    @Singleton
-    fun providePodcastIndexApi(retrofit: Retrofit): PodcastIndexApi {
-        return retrofit.create(PodcastIndexApi::class.java)
+            .create(PodcastIndexApi::class.java)
     }
 }

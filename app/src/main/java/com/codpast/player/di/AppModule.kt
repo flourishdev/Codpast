@@ -3,6 +3,7 @@ package com.codpast.player.di
 
 import com.codpast.player.data.local.dao.PodcastDao
 import com.codpast.player.data.repository.PodcastRepository
+import com.codpast.player.data.network.PodcastIndexApi
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -25,7 +26,10 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun providePodcastRepository(podcastDao: PodcastDao): PodcastRepository {
-        return PodcastRepository(podcastDao)
+    fun providePodcastRepository(
+        podcastDao: PodcastDao,
+        api: PodcastIndexApi
+    ): PodcastRepository {
+        return PodcastRepository(podcastDao, api)
     }
 }

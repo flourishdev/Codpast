@@ -12,6 +12,7 @@ import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
 import com.codpast.player.data.repository.PlaybackProgressManager
+import com.codpast.player.data.repository.PodcastRepository
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
@@ -22,6 +23,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.guava.future
+import android.net.Uri
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -29,6 +32,9 @@ class PodcastPlaybackService : MediaLibraryService() {
 
     @Inject
     lateinit var progressManager: PlaybackProgressManager
+
+    @Inject
+    lateinit var repository: PodcastRepository
 
     private lateinit var player: ExoPlayer
     private lateinit var mediaLibrarySession: MediaLibrarySession
@@ -173,11 +179,31 @@ class PodcastPlaybackService : MediaLibraryService() {
                         params
                     )
                 )
-                "tier_subscriptions", "tier_up_next", "tier_downloads" -> {
-                    // DB queries can be wired here to return playable MediaItems
+                "tier_subscriptions" -> serviceScope.future {
+                    // 1. Fetch live data from Room
+                    val subscriptions = repository.getSubscribedPodcastsSnapshot()
+
+                    // 2. Map Database Entities to Media3 MediaItems
+                    val mediaItems = subscriptions.map { podcast ->
+                        MediaItem.Builder()
+                            .setMediaId(podcast.id)
+                            .setMediaMetadata(
+                                MediaMetadata.Builder()
+                                    .setIsBrowsable(true) // Browsable because clicking a podcast opens its episodes
+                                    .setIsPlayable(false)
+                                    .setTitle(podcast.title)
+                                    .setArtworkUri(Uri.parse(podcast.artworkUrl))
+                                    .build()
+                            ).build()
+                    }
+                    LibraryResult.ofItemList(ImmutableList.copyOf(mediaItems), params)
+                }
+                "tier_up_next", "tier_downloads" -> {
                     Futures.immediateFuture(LibraryResult.ofItemList(ImmutableList.of(), params))
                 }
-                else -> Futures.immediateFuture(LibraryResult.ofError(androidx.media3.session.SessionError.ERROR_BAD_VALUE))
+                else -> Futures.immediateFuture(
+                    LibraryResult.ofError(androidx.media3.session.SessionError.ERROR_BAD_VALUE)
+                )
             }
         }
     }

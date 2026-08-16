@@ -1,7 +1,10 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kspPlugin)
     alias(libs.plugins.hilt)
+    alias(libs.plugins.compose.compiler)
 }
 
 android {
@@ -18,6 +21,23 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        val properties = Properties()
+        val localPropertiesFile = rootProject.file("local.properties")
+        if (localPropertiesFile.exists()) {
+            properties.load(localPropertiesFile.inputStream())
+        }
+
+        buildConfigField(
+            "String",
+            "PODCAST_API_KEY",
+            "\"${properties.getProperty("PODCAST_API_KEY", "")}\""
+        )
+        buildConfigField(
+            "String",
+            "PODCAST_API_SECRET",
+            "\"${properties.getProperty("PODCAST_API_SECRET", "")}\""
+        )
     }
 
     buildTypes {
@@ -28,11 +48,21 @@ android {
         }
     }
 
+    buildFeatures {
+        compose = true
+    }
+
+    buildFeatures {
+        compose = true
+        buildConfig = true // 3. Enable BuildConfig generation
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
 }
+
 
 dependencies {
     implementation(libs.androidx.appcompat)
@@ -60,4 +90,18 @@ dependencies {
     implementation(libs.retrofit.gson)
     implementation(libs.okhttp)
     implementation(libs.okhttp.logging)
+
+    implementation(libs.rssparser)
+    implementation(libs.coroutines.guava)
+
+    implementation(platform(libs.compose.bom))
+    implementation(libs.compose.ui)
+    implementation(libs.compose.material3)
+    implementation(libs.compose.ui.tooling)
+    implementation(libs.activity.compose)
+    implementation(libs.navigation.compose)
+    implementation(libs.hilt.navigation.compose)
+    implementation(libs.lifecycle.runtime.compose)
+
+    implementation(libs.coil.compose)
 }
