@@ -10,6 +10,7 @@ import javax.inject.Inject
 import com.prof18.rssparser.RssParserBuilder
 import java.text.SimpleDateFormat
 import java.util.Locale
+import kotlin.collections.mapNotNull
 
 enum class PositionMode {
     APPEND,
@@ -155,5 +156,40 @@ class PodcastRepository @Inject constructor(
             e.printStackTrace()
             emptyList()
         }
+    }
+
+    suspend fun getQueueSnapshotWithEpisodes(): List<EpisodeEntity> {
+        return podcastDao.getQueueSnapshotWithEpisodes().mapNotNull { it.episode }
+    }
+
+    suspend fun getNextEpisodeToPlay(currentEpisodeId: String?): EpisodeEntity? {
+        val queueWithEpisodes = getQueueSnapshotWithEpisodes()
+        if (queueWithEpisodes.isEmpty()) return null
+
+        val currentIndex = queueWithEpisodes.indexOfFirst { it.id == currentEpisodeId }
+
+        if (currentIndex != -1) {
+            // 1. Search forward from current position for next uncompleted episode
+            for (i in (currentIndex + 1) until queueWithEpisodes.size) {
+                if (!queueWithEpisodes[i].isCompleted) return queueWithEpisodes[i]
+            }
+            // 2. Wrap-around: Search from top of queue up to current position for skipped episodes
+            for (i in 0 until currentIndex) {
+                if (!queueWithEpisodes[i].isCompleted) return queueWithEpisodes[i]
+            }
+        } else {
+            // If current episode isn't in queue, play first uncompleted item
+            return queueWithEpisodes.firstOrNull { !it.isCompleted }
+        }
+        return null
+    }
+
+    suspend fun markCompletedAndRemoveFromQueue(episodeId: String) {
+        podcastDao.markCompletedAndRemoveFromQueue(episodeId)
+    }
+
+    suspend fun reEnqueueEpisode(episodeId: String) {
+        val nextPos = podcastDao.getNextPosition()
+        podcastDao.reEnqueueEpisode(episodeId, nextPos)
     }
 }

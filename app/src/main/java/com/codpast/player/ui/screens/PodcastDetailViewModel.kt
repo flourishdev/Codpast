@@ -12,6 +12,7 @@ import com.codpast.player.data.repository.PodcastRepository
 import com.codpast.player.service.PodcastPlaybackService
 import com.codpast.player.ui.mvi.PodcastDetailIntent
 import com.codpast.player.ui.mvi.PodcastDetailUiState
+import com.codpast.player.ui.mvi.QueueIntent
 import com.codpast.player.util.toMediaItem
 import com.google.common.util.concurrent.ListenableFuture
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -164,6 +165,22 @@ class PodcastDetailViewModel @Inject constructor(
             is PodcastDetailIntent.EnqueueEpisode -> enqueueEpisode(intent.episodeId)
             is PodcastDetailIntent.DownloadEpisode -> downloadEpisode(intent.episodeId)
             is PodcastDetailIntent.RefreshFeed -> refreshFeed()
+        }
+    }
+
+    fun onIntent(intent: QueueIntent) {
+        when (intent) {
+            is QueueIntent.PlayFromQueue -> {
+                // To jump instantly, you will need to inject the MediaController here
+                // exactly like you did in PlayerViewModel and PodcastDetailViewModel,
+                // and call mediaController?.setMediaItem(mediaItem), then play()
+            }
+            is QueueIntent.RemoveFromQueue -> {
+                viewModelScope.launch { repository.removeFromQueue(intent.episodeId) }
+            }
+            is QueueIntent.ClearQueue -> {
+                viewModelScope.launch { repository.clearQueue() }
+            }
         }
     }
 

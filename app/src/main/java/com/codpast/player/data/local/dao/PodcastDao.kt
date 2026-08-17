@@ -78,4 +78,23 @@ interface PodcastDao {
                 "ORDER BY queue.position ASC"
     )
     fun getQueueEpisodes(): kotlinx.coroutines.flow.Flow<List<com.codpast.player.data.local.entity.EpisodeEntity>>
+
+    @androidx.room.Query("UPDATE episodes SET isCompleted = :isCompleted, playbackPosition = :position WHERE id = :episodeId")
+    suspend fun updateEpisodeCompletion(episodeId: String, isCompleted: Boolean, position: Long = 0L)
+
+    @androidx.room.Transaction
+    suspend fun markCompletedAndRemoveFromQueue(episodeId: String) {
+        updateEpisodeCompletion(episodeId, isCompleted = true, position = 0L)
+        deleteQueueItem(episodeId)
+    }
+
+    @androidx.room.Transaction
+    suspend fun reEnqueueEpisode(episodeId: String, nextPosition: Int) {
+        updateEpisodeCompletion(episodeId, isCompleted = false, position = 0L)
+        insertQueueItem(com.codpast.player.data.local.entity.QueueEntity(episodeId, nextPosition))
+    }
+
+    @androidx.room.Transaction
+    @androidx.room.Query("SELECT * FROM queue ORDER BY position ASC")
+    suspend fun getQueueSnapshotWithEpisodes(): List<com.codpast.player.data.local.entity.QueueWithEpisode>
 }

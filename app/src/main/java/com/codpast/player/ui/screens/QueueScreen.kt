@@ -1,5 +1,6 @@
 package com.codpast.player.ui.screens
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -47,6 +48,10 @@ fun QueueScreen(
             ) {
                 items(state.queueItems, key = { it.id }) { episode ->
                     ListItem(
+                        // Add the clickable modifier to jump playback!
+                        modifier = Modifier.clickable {
+                            viewModel.onIntent(QueueIntent.PlayFromQueue(episode.id))
+                        },
                         headlineContent = { Text(episode.title, maxLines = 1) },
                         supportingContent = { Text("Duration: ${episode.duration / 60000} min") },
                         trailingContent = {

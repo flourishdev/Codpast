@@ -26,6 +26,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.guava.future
 import android.net.Uri
 import javax.inject.Inject
+import com.codpast.player.util.toMediaItem
 
 @AndroidEntryPoint
 class PodcastPlaybackService : MediaLibraryService() {
@@ -80,8 +81,34 @@ class PodcastPlaybackService : MediaLibraryService() {
 
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_ENDED || playbackState == Player.STATE_IDLE) {
-                    // Immediate flush on track end or player stop
                     progressManager.triggerImmediateFlush()
+                }
+
+                // Add the Architect's Queue Resolution Logic
+                if (playbackState == Player.STATE_ENDED) {
+                    val currentMediaId = player.currentMediaItem?.mediaId
+                    if (currentMediaId != null) {
+                        serviceScope.launch {
+                            // 1. Mark finished and remove
+                            repository.markCompletedAndRemoveFromQueue(currentMediaId)
+
+                            // 2. Figure out what to play next using wrap-around
+                            val nextEpisode = repository.getNextEpisodeToPlay(currentMediaId)
+
+                            kotlinx.coroutines.withContext(Dispatchers.Main) {
+                                if (nextEpisode != null) {
+                                    // Architecture Note: You might want to grab the full PodcastEntity here
+                                    // if you need its artwork for the MediaItem conversion
+                                    val nextMediaItem = nextEpisode.toMediaItem(null)
+                                    player.setMediaItem(nextMediaItem)
+                                    player.prepare()
+                                    player.play()
+                                } else {
+                                    player.stop()
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
