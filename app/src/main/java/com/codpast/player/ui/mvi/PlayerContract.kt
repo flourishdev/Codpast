@@ -7,6 +7,8 @@ data class PlayerUiState(
     val currentEpisode: EpisodeEntity? = null,
     val currentPodcast: PodcastEntity? = null,
     val isPlaying: Boolean = false,
+    val isBuffering: Boolean = false,
+    val isPreparing: Boolean = false,
     val currentPositionMs: Long = 0L,
     val durationMs: Long = 0L,
     val playbackSpeed: Float = 1.0f,

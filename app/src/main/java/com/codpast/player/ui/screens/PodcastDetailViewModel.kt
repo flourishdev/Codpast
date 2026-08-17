@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import kotlinx.coroutines.flow.firstOrNull
 
 @HiltViewModel
 class PodcastDetailViewModel @Inject constructor(
@@ -32,8 +33,11 @@ class PodcastDetailViewModel @Inject constructor(
     @param:ApplicationContext private val context: Context
 ) : ViewModel() {
 
-    private val podcastId: String? = savedStateHandle["podcastId"]
-    private val feedUrl: String? = savedStateHandle["feedUrl"]
+    private val podcastId: String? = savedStateHandle.get<String>("podcastId")
+        ?.takeIf { it.isNotBlank() && it != "null" && it != "{podcastId}" }
+
+    private val feedUrl: String? = savedStateHandle.get<String>("feedUrl")
+        ?.takeIf { it.isNotBlank() && it != "null" && it != "{feedUrl}" }
 
     private val _state = MutableStateFlow(PodcastDetailUiState(isLoading = true))
     val state: StateFlow<PodcastDetailUiState> = _state.asStateFlow()
@@ -62,40 +66,82 @@ class PodcastDetailViewModel @Inject constructor(
 
     private fun loadPodcastDetails() {
         viewModelScope.launch {
-            if (feedUrl != null) {
-                // 1. Unsubscribed Preview: Fetch fresh from the RSS Network Feed
-                try {
-                    val podcast = repository.parseRssUrl(feedUrl)
-                    if (podcast != null) {
-                        val episodes = repository.fetchEpisodes(podcast.id, feedUrl)
+            _state.update { it.copy(isLoading = true, errorMessage = null) }
+
+            try {
+                var targetFeedUrl = feedUrl
+                var isCurrentlySubscribed = false
+                var localPodcast: com.codpast.player.data.local.entity.PodcastEntity? = null
+
+                // 1. Check local DB to see if we are already subscribed
+                if (podcastId != null) {
+                    localPodcast = repository.getPodcastById(podcastId).firstOrNull()
+                    if (localPodcast != null) {
+                        isCurrentlySubscribed = true
+                        // If Subscriptions screen didn't pass a feedUrl, grab it from the saved podcast!
+                        if (targetFeedUrl.isNullOrBlank()) {
+                            targetFeedUrl = localPodcast.feedUrl
+                        }
+                    }
+                }
+
+                // 2. Fetch the absolute latest episodes from the Network (so it's always up to date)
+                if (!targetFeedUrl.isNullOrBlank()) {
+                    val remotePodcast = repository.parseRssUrl(targetFeedUrl!!)
+                    if (remotePodcast != null) {
+                        val remoteEpisodes = repository.fetchEpisodes(remotePodcast.id, targetFeedUrl!!)
+
                         _state.update {
                             it.copy(
                                 isLoading = false,
-                                podcast = podcast,
-                                episodes = episodes,
-                                isSubscribed = false
+                                podcast = remotePodcast,
+                                episodes = remoteEpisodes,
+                                isSubscribed = isCurrentlySubscribed
                             )
                         }
+
+                        // Architecture Bonus: Automatically update the DB with new episodes if subscribed
+                        if (isCurrentlySubscribed) {
+                            repository.savePodcastAndEpisodes(remotePodcast, remoteEpisodes)
+                        }
                     } else {
-                        _state.update { it.copy(isLoading = false, errorMessage = "Failed to parse podcast.") }
+                        throw Exception("Failed to load podcast from feed.")
                     }
-                } catch (e: Exception) {
-                    _state.update { it.copy(isLoading = false, errorMessage = e.message) }
-                }
-            } else if (podcastId != null) {
-                // 2. Subscribed: Observe continuous updates directly from Room Database
-                repository.getPodcastById(podcastId).combine(repository.getEpisodesByPodcastId(podcastId)) { podcast, episodes ->
-                    Pair(podcast, episodes)
-                }.collectLatest { (podcast, episodes) ->
+                } else if (localPodcast != null) {
+                    // 3. Fallback: Load local DB episodes if we somehow have no URL
+                    val localEpisodes = repository.getEpisodesByPodcastId(localPodcast.id).firstOrNull() ?: emptyList()
                     _state.update {
                         it.copy(
                             isLoading = false,
-                            podcast = podcast,
-                            episodes = episodes,
+                            podcast = localPodcast,
+                            episodes = localEpisodes,
                             isSubscribed = true
                         )
                     }
+                } else {
+                    _state.update { it.copy(isLoading = false, errorMessage = "No podcast ID or Feed URL provided.") }
                 }
+
+            } catch (e: Exception) {
+                // 4. Offline Fallback: If network fails, load what we have saved in Room
+                if (podcastId != null) {
+                    val localPodcast = repository.getPodcastById(podcastId).firstOrNull()
+                    val localEpisodes = repository.getEpisodesByPodcastId(podcastId).firstOrNull() ?: emptyList()
+
+                    if (localPodcast != null) {
+                        _state.update {
+                            it.copy(
+                                isLoading = false,
+                                podcast = localPodcast,
+                                episodes = localEpisodes,
+                                isSubscribed = true,
+                                errorMessage = "Network failed. Viewing offline saved episodes."
+                            )
+                        }
+                        return@launch
+                    }
+                }
+                _state.update { it.copy(isLoading = false, errorMessage = e.message) }
             }
         }
     }

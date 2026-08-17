@@ -44,6 +44,32 @@ interface PodcastDao {
     @androidx.room.Query("DELETE FROM episodes WHERE podcastId = :podcastId")
     suspend fun deleteEpisodesByPodcastId(podcastId: String)
 
+// --- Queue Management ---
+
     @androidx.room.Insert(onConflict = androidx.room.OnConflictStrategy.REPLACE)
     suspend fun insertQueueItem(queueItem: com.codpast.player.data.local.entity.QueueEntity)
+
+    @androidx.room.Update
+    suspend fun updateQueueItems(items: List<com.codpast.player.data.local.entity.QueueEntity>)
+
+    @androidx.room.Query("SELECT COALESCE(MAX(position), -1) + 1 FROM queue")
+    suspend fun getNextPosition(): Int
+
+    @androidx.room.Query("UPDATE queue SET position = position + 1 WHERE position >= :fromPosition")
+    suspend fun shiftPositionsUp(fromPosition: Int)
+
+    @androidx.room.Transaction
+    suspend fun updateQueueOrder(episodes: List<com.codpast.player.data.local.entity.QueueEntity>) {
+        val reindexed = episodes.mapIndexed { index, entity ->
+            entity.copy(position = index)
+        }
+        updateQueueItems(reindexed)
+    }
+
+    @androidx.room.Query(
+        "SELECT episodes.* FROM episodes " +
+                "INNER JOIN queue ON episodes.id = queue.episodeId " +
+                "ORDER BY queue.position ASC"
+    )
+    fun getQueueEpisodes(): kotlinx.coroutines.flow.Flow<List<com.codpast.player.data.local.entity.EpisodeEntity>>
 }

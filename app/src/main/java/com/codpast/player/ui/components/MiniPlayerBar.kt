@@ -75,12 +75,11 @@ fun MiniPlayerBar(
                 )
             }
 
-            IconButton(onClick = { viewModel.onIntent(PlayerIntent.TogglePlayPause) }) {
-                Icon(
-                    imageVector = if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                    contentDescription = if (state.isPlaying) "Pause" else "Play"
-                )
-            }
+            PlayPauseLoadingButton(
+                isPlaying = state.isPlaying,
+                isBuffering = state.isBuffering,
+                onClick = { viewModel.onIntent(PlayerIntent.TogglePlayPause) }
+            )
         }
 
         // Thin progress indicator at the very bottom edge

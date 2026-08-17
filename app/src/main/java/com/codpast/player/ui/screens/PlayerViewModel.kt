@@ -67,10 +67,18 @@ class PlayerViewModel @Inject constructor(
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
-                if (playbackState == Player.STATE_READY) {
-                    _state.update {
-                        it.copy(durationMs = mediaController?.duration?.coerceAtLeast(0L) ?: 0L)
-                    }
+                _state.update {
+                    it.copy(
+                        // STATE_BUFFERING applies to both initial preparation and mid-playback network stalls
+                        isBuffering = playbackState == Player.STATE_BUFFERING,
+                        isPreparing = playbackState == Player.STATE_BUFFERING,
+
+                        durationMs = if (playbackState == Player.STATE_READY) {
+                            mediaController?.duration?.coerceAtLeast(0L) ?: 0L
+                        } else {
+                            it.durationMs
+                        }
+                    )
                 }
             }
 

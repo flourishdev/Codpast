@@ -7,5 +7,5 @@ import androidx.room.PrimaryKey
 @Entity(tableName = "queue")
 data class QueueEntity(
     @PrimaryKey val episodeId: String,
-    val sortOrder: Int
+    val position: Int
 )
