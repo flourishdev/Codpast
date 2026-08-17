@@ -117,6 +117,10 @@ class PodcastRepository @Inject constructor(
         podcastDao.updateQueueOrder(orderedEpisodes)
     }
 
+    suspend fun removeFromQueue(episodeId: String) = podcastDao.deleteQueueItem(episodeId)
+
+    suspend fun clearQueue() = podcastDao.clearQueue()
+
     fun getQueueEpisodes(): kotlinx.coroutines.flow.Flow<List<com.codpast.player.data.local.entity.EpisodeEntity>> {
         return podcastDao.getQueueEpisodes()
     }

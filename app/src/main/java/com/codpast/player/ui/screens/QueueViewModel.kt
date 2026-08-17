@@ -44,13 +44,13 @@ class QueueViewModel @Inject constructor(
     fun onIntent(intent: QueueIntent) {
         when (intent) {
             is QueueIntent.PlayFromQueue -> {
-                // Architecture Next Step: Pipe to MediaController & Remove from Queue DB
+                // Architecture Next Step: Pipe to MediaController
             }
             is QueueIntent.RemoveFromQueue -> {
-                // Architecture Next Step: Delete from Queue DB
+                viewModelScope.launch { repository.removeFromQueue(intent.episodeId) }
             }
             is QueueIntent.ClearQueue -> {
-                // Architecture Next Step: Clear Queue DB table
+                viewModelScope.launch { repository.clearQueue() }
             }
         }
     }

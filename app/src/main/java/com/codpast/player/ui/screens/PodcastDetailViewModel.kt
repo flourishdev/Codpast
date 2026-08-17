@@ -49,6 +49,7 @@ class PodcastDetailViewModel @Inject constructor(
     init {
         loadPodcastDetails()
         initializeController()
+        observeQueueState()
     }
 
     private fun initializeController() {
@@ -62,6 +63,16 @@ class PodcastDetailViewModel @Inject constructor(
         mediaControllerFuture?.addListener({
             mediaController = mediaControllerFuture?.get()
         }, ContextCompat.getMainExecutor(context))
+    }
+
+    private fun observeQueueState() {
+        viewModelScope.launch {
+            repository.getQueueEpisodes().collectLatest { queuedEpisodes ->
+                _state.update {
+                    it.copy(queuedEpisodeIds = queuedEpisodes.map { ep -> ep.id }.toSet())
+                }
+            }
+        }
     }
 
     private fun loadPodcastDetails() {
@@ -201,9 +212,11 @@ class PodcastDetailViewModel @Inject constructor(
             try {
                 // 1. Save locally so the Queue's INNER JOIN can find it
                 repository.savePodcastAndEpisodes(podcast, listOf(episode))
+                repository.enqueueEpisode(episodeId)
 
                 // 2. Add to Queue
-                repository.enqueueEpisode(episodeId)
+                val mediaItem = episode.toMediaItem(podcast)
+                mediaController?.addMediaItem(mediaItem)
 
                 // 3. Print success to Logcat!
                 android.util.Log.d("QueueDebug", "Successfully queued: ${episode.title}")

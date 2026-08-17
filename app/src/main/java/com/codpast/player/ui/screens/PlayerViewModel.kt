@@ -62,8 +62,13 @@ class PlayerViewModel @Inject constructor(
         updateCurrentMediaItem(mediaController?.currentMediaItem)
 
         mediaController?.addListener(object : Player.Listener {
-            override fun onIsPlayingChanged(isPlaying: Boolean) {
-                _state.update { it.copy(isPlaying = isPlaying) }
+            override fun onEvents(player: Player, events: Player.Events) {
+                _state.update {
+                    it.copy(
+                        isPlaying = player.isPlaying,
+                        hasNextEpisode = player.hasNextMediaItem() // This flips the boolean to unlock the Next button!
+                    )
+                }
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
@@ -169,7 +174,9 @@ class PlayerViewModel @Inject constructor(
                 _state.update { it.copy(playbackSpeed = intent.speed) }
             }
             is PlayerIntent.SkipToNext -> {
-                mediaController?.seekToNext()
+                if (mediaController?.hasNextMediaItem() == true) {
+                    mediaController?.seekToNextMediaItem()
+                }
             }
         }
     }

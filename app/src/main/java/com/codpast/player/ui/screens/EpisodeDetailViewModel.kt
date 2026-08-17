@@ -105,7 +105,21 @@ class EpisodeDetailViewModel @Inject constructor(
             is EpisodeDetailIntent.SeekTo -> {
                 progressManager.updateProgress(episodeId, intent.positionMs)
             }
-            is EpisodeDetailIntent.Enqueue -> {}
+            is EpisodeDetailIntent.Enqueue -> {
+                val currentEpisode = state.value.episode ?: return
+                val currentPodcast = state.value.podcast ?: return
+
+                viewModelScope.launch {
+                    try {
+                        // Save offline first, then enqueue
+                        repository.savePodcastAndEpisodes(currentPodcast, listOf(currentEpisode))
+                        repository.enqueueEpisode(currentEpisode.id)
+                        android.util.Log.d("QueueDebug", "Enqueued from EpisodeDetail: ${currentEpisode.title}")
+                    } catch (e: Exception) {
+                        android.util.Log.e("QueueDebug", "Failed to enqueue", e)
+                    }
+                }
+            }
             is EpisodeDetailIntent.DownloadEpisode -> {
                 _downloadStatus.value = DownloadStatus.QUEUED
             }

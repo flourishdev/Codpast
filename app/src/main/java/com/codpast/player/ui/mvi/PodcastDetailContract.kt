@@ -9,6 +9,7 @@ data class PodcastDetailUiState(
     val podcast: PodcastEntity? = null,
     val episodes: List<EpisodeEntity> = emptyList(),
     val isSubscribed: Boolean = false,
+    val queuedEpisodeIds: Set<String> = emptySet(), // <-- ADD THIS LINE
     val errorMessage: String? = null
 ) : UiState
 

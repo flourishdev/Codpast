@@ -66,6 +66,12 @@ interface PodcastDao {
         updateQueueItems(reindexed)
     }
 
+    @androidx.room.Query("DELETE FROM queue WHERE episodeId = :episodeId")
+    suspend fun deleteQueueItem(episodeId: String)
+
+    @androidx.room.Query("DELETE FROM queue")
+    suspend fun clearQueue()
+
     @androidx.room.Query(
         "SELECT episodes.* FROM episodes " +
                 "INNER JOIN queue ON episodes.id = queue.episodeId " +

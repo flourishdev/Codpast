@@ -45,6 +45,7 @@ import com.codpast.player.data.local.entity.EpisodeEntity
 import com.codpast.player.ui.mvi.PodcastDetailIntent
 import android.text.format.DateUtils
 import androidx.compose.foundation.clickable
+import androidx.compose.material3.LocalContentColor
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -110,6 +111,7 @@ fun PodcastDetailScreen(
                         items(state.episodes) { episode ->
                             EpisodeRowItem(
                                 episode = episode,
+                                isQueued = state.queuedEpisodeIds.contains(episode.id), // <-- PASS THIS DOWN
                                 onClick = { onNavigateToEpisode(episode.id, state.podcast?.feedUrl) },
                                 onPlay = { viewModel.onIntent(PodcastDetailIntent.PlayEpisode(episode.id)) },
                                 onEnqueue = { viewModel.onIntent(PodcastDetailIntent.EnqueueEpisode(episode.id)) },
@@ -126,6 +128,7 @@ fun PodcastDetailScreen(
 @Composable
 fun EpisodeRowItem(
     episode: EpisodeEntity,
+    isQueued: Boolean,
     onClick: () -> Unit,
     onPlay: () -> Unit,
     onEnqueue: () -> Unit,
@@ -166,9 +169,15 @@ fun EpisodeRowItem(
             }
             Row {
                 IconButton(onClick = onEnqueue) {
-                    Icon(Icons.Default.Add, contentDescription = "Enqueue")
+                    // SWAP ICON BASED ON isQueued STATE
+                    Icon(
+                        imageVector = if (isQueued) Icons.Default.Check else Icons.Default.Add,
+                        contentDescription = if (isQueued) "In Queue" else "Enqueue",
+                        tint = if (isQueued) MaterialTheme.colorScheme.primary else LocalContentColor.current
+                    )
                 }
                 IconButton(onClick = onDownload) {
+                    // Note: You might want to change this to a Download icon later to avoid confusion with the Queue checkmark!
                     Icon(Icons.Default.Check, contentDescription = "Download")
                 }
             }
