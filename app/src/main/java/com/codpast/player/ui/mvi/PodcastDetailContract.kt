@@ -8,6 +8,7 @@ data class PodcastDetailUiState(
     val isRefreshing: Boolean = false,
     val podcast: PodcastEntity? = null,
     val episodes: List<EpisodeEntity> = emptyList(),
+    val isSubscribed: Boolean = false,
     val errorMessage: String? = null
 ) : UiState
 

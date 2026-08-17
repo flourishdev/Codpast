@@ -24,6 +24,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.codpast.player.R
 import com.codpast.player.ui.mvi.PlayerIntent
+import androidx.compose.material.icons.filled.Pause
 
 @Composable
 fun ListenScreen(
@@ -127,8 +128,9 @@ fun ListenScreen(
                 shape = RoundedCornerShape(36.dp)
             ) {
                 Icon(
-                    imageVector = Icons.Default.PlayArrow, // Replace with Pause icon when state.isPlaying is true
-                    contentDescription = "Play/Pause",
+                    // SWAP ICON BASED ON STATE
+                    imageVector = if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                    contentDescription = if (state.isPlaying) "Pause" else "Play",
                     modifier = Modifier.size(36.dp)
                 )
             }

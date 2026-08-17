@@ -73,6 +73,25 @@ class PodcastRepository @Inject constructor(
         return podcastDao.getEpisodeById(episodeId)
     }
 
+    fun getEpisodesByPodcastId(podcastId: String): Flow<List<EpisodeEntity>> {
+        return podcastDao.getEpisodesByPodcastId(podcastId)
+    }
+
+    suspend fun savePodcastAndEpisodes(podcast: com.codpast.player.data.local.entity.PodcastEntity, episodes: List<com.codpast.player.data.local.entity.EpisodeEntity>) {
+        podcastDao.insertPodcast(podcast)
+        podcastDao.insertEpisodes(episodes)
+    }
+
+    suspend fun deletePodcastAndEpisodes(podcastId: String) {
+        podcastDao.deletePodcast(podcastId)
+        podcastDao.deleteEpisodesByPodcastId(podcastId)
+    }
+
+    suspend fun enqueueEpisode(episodeId: String) {
+        val queueItem = com.codpast.player.data.local.entity.QueueEntity(episodeId = episodeId)
+        podcastDao.insertQueueItem(queueItem)
+    }
+
     suspend fun fetchEpisodes(podcastId: String, feedUrl: String): List<EpisodeEntity> {
         return try {
             val rssChannel = rssParser.getRssChannel(feedUrl)

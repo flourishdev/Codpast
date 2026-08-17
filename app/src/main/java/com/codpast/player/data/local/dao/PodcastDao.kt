@@ -34,4 +34,16 @@ interface PodcastDao {
 
     @Query("SELECT * FROM episodes WHERE id = :episodeId")
     fun getEpisodeById(episodeId: String): Flow<EpisodeEntity?>
+
+    @Query("SELECT * FROM episodes WHERE podcastId = :podcastId ORDER BY publishedAt DESC")
+    fun getEpisodesByPodcastId(podcastId: String): Flow<List<EpisodeEntity>>
+
+    @androidx.room.Query("DELETE FROM podcasts WHERE id = :podcastId")
+    suspend fun deletePodcast(podcastId: String)
+
+    @androidx.room.Query("DELETE FROM episodes WHERE podcastId = :podcastId")
+    suspend fun deleteEpisodesByPodcastId(podcastId: String)
+
+    @androidx.room.Insert(onConflict = androidx.room.OnConflictStrategy.REPLACE)
+    suspend fun insertQueueItem(queueItem: com.codpast.player.data.local.entity.QueueEntity)
 }

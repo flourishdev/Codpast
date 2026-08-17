@@ -22,6 +22,7 @@ import coil.compose.AsyncImage
 import com.codpast.player.R
 import com.codpast.player.ui.mvi.PlayerIntent
 import com.codpast.player.ui.screens.PlayerViewModel
+import androidx.compose.material.icons.filled.Pause
 
 @Composable
 fun MiniPlayerBar(
@@ -49,8 +50,8 @@ fun MiniPlayerBar(
                 model = state.currentEpisode?.imageUrl ?: state.currentPodcast?.artworkUrl,
                 contentDescription = "Artwork",
                 contentScale = ContentScale.Crop,
-                placeholder = painterResource(id = R.mipmap.ic_launcher),
-                error = painterResource(id = R.mipmap.ic_launcher),
+                placeholder = painterResource(id = R.drawable.ic_launcher_foreground),
+                error = painterResource(id = R.drawable.ic_launcher_foreground),
                 modifier = Modifier
                     .size(48.dp)
                     .clip(RoundedCornerShape(8.dp))
@@ -76,8 +77,8 @@ fun MiniPlayerBar(
 
             IconButton(onClick = { viewModel.onIntent(PlayerIntent.TogglePlayPause) }) {
                 Icon(
-                    imageVector = Icons.Default.PlayArrow, // Will swap to Pause when service is built
-                    contentDescription = "Play/Pause"
+                    imageVector = if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                    contentDescription = if (state.isPlaying) "Pause" else "Play"
                 )
             }
         }

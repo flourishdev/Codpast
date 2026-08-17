@@ -1,47 +1,174 @@
 package com.codpast.player.ui.screens
 
+import android.content.ComponentName
+import android.content.Context
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.media3.common.PlaybackParameters
+import androidx.media3.common.Player
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
+import com.codpast.player.service.PodcastPlaybackService
 import com.codpast.player.ui.mvi.PlayerIntent
 import com.codpast.player.ui.mvi.PlayerUiState
+import com.google.common.util.concurrent.ListenableFuture
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
-class PlayerViewModel @Inject constructor() : ViewModel() {
+class PlayerViewModel @Inject constructor(
+    @ApplicationContext private val context: Context
+) : ViewModel() {
 
     private val _state = MutableStateFlow(PlayerUiState())
     val state: StateFlow<PlayerUiState> = _state.asStateFlow()
 
+    // The bridge to our background service
+    private var mediaControllerFuture: ListenableFuture<MediaController>? = null
+    private var mediaController: MediaController? = null
+
+    init {
+        initializeController()
+        startProgressTracker()
+    }
+
+    private fun initializeController() {
+        // 1. Point the token to our specific PodcastPlaybackService
+        val sessionToken = SessionToken(
+            context,
+            ComponentName(context, PodcastPlaybackService::class.java)
+        )
+
+        // 2. Build the controller asynchronously
+        mediaControllerFuture = MediaController.Builder(context, sessionToken).buildAsync()
+
+        // 3. Wait for it to connect, then set up our listeners
+        mediaControllerFuture?.addListener({
+            mediaController = mediaControllerFuture?.get()
+            setupPlayerListener()
+        }, ContextCompat.getMainExecutor(context))
+    }
+
+    private fun setupPlayerListener() {
+        // 1. Grab the currently playing item immediately upon connection (in case it's already playing)
+        updateCurrentMediaItem(mediaController?.currentMediaItem)
+
+        mediaController?.addListener(object : Player.Listener {
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                _state.update { it.copy(isPlaying = isPlaying) }
+            }
+
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_READY) {
+                    _state.update {
+                        it.copy(durationMs = mediaController?.duration?.coerceAtLeast(0L) ?: 0L)
+                    }
+                }
+            }
+
+            // 2. Listen for track changes to update the MiniPlayer artwork and title!
+            override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+                updateCurrentMediaItem(mediaItem)
+            }
+        })
+    }
+
+    private fun updateCurrentMediaItem(mediaItem: androidx.media3.common.MediaItem?) {
+        if (mediaItem == null) return
+
+        val metadata = mediaItem.mediaMetadata
+
+        // Reconstruct just enough dummy data from the MediaItem so the UI can display it
+        val episode = com.codpast.player.data.local.entity.EpisodeEntity(
+            id = mediaItem.mediaId,
+            podcastId = "playing_podcast",
+            title = metadata.title?.toString() ?: "Unknown",
+            description = "",
+            audioUrl = "",
+            imageUrl = metadata.artworkUri?.toString() ?: "",
+            publishedAt = 0L,
+            duration = 0L,
+            isCompleted = false,
+            playbackPosition = 0L
+        )
+
+        val podcast = com.codpast.player.data.local.entity.PodcastEntity(
+            id = "playing_podcast",
+            title = metadata.artist?.toString() ?: "Unknown",
+            description = "",
+            artworkUrl = metadata.artworkUri?.toString() ?: "",
+            feedUrl = "",
+            isSubscribed = false
+        )
+
+        _state.update {
+            it.copy(
+                currentEpisode = episode,
+                currentPodcast = podcast,
+                durationMs = mediaController?.duration?.coerceAtLeast(0L) ?: 0L
+            )
+        }
+    }
+
+    private fun startProgressTracker() {
+        // This loop updates the slider scrubber every second while audio is playing
+        viewModelScope.launch {
+            while (true) {
+                if (_state.value.isPlaying) {
+                    _state.update {
+                        it.copy(currentPositionMs = mediaController?.currentPosition?.coerceAtLeast(0L) ?: 0L)
+                    }
+                }
+                delay(1000L)
+            }
+        }
+    }
+
     fun onIntent(intent: PlayerIntent) {
         when (intent) {
             is PlayerIntent.TogglePlayPause -> {
-                _state.update { it.copy(isPlaying = !it.isPlaying) }
-                // Architecture Next Step: Pipe to MediaController
+                if (mediaController?.isPlaying == true) {
+                    mediaController?.pause()
+                } else {
+                    mediaController?.play()
+                }
             }
             is PlayerIntent.SeekTo -> {
+                mediaController?.seekTo(intent.positionMs)
                 _state.update { it.copy(currentPositionMs = intent.positionMs) }
-                // Architecture Next Step: Pipe to MediaController
             }
             is PlayerIntent.SkipForward -> {
-                val newPos = (_state.value.currentPositionMs + intent.ms).coerceAtMost(_state.value.durationMs)
-                _state.update { it.copy(currentPositionMs = newPos) }
+                val current = mediaController?.currentPosition ?: 0L
+                val duration = mediaController?.duration ?: 0L
+                val newPos = (current + intent.ms).coerceAtMost(duration)
+                mediaController?.seekTo(newPos)
             }
             is PlayerIntent.SkipBackward -> {
-                val newPos = (_state.value.currentPositionMs - intent.ms).coerceAtLeast(0L)
-                _state.update { it.copy(currentPositionMs = newPos) }
+                val current = mediaController?.currentPosition ?: 0L
+                val newPos = (current - intent.ms).coerceAtLeast(0L)
+                mediaController?.seekTo(newPos)
             }
             is PlayerIntent.SetSpeed -> {
+                mediaController?.playbackParameters = PlaybackParameters(intent.speed)
                 _state.update { it.copy(playbackSpeed = intent.speed) }
-                // Architecture Next Step: Pipe to MediaController
             }
             is PlayerIntent.SkipToNext -> {
-                // Architecture Next Step: Pipe to MediaController
+                mediaController?.seekToNext()
             }
         }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        // Prevent memory leaks when the ViewModel dies
+        mediaControllerFuture?.let { MediaController.releaseFuture(it) }
     }
 }

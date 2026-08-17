@@ -106,4 +106,6 @@ dependencies {
 
 // Compose Extended Icons
     implementation(libs.androidx.material.icons.extended)
+
+    implementation("com.google.guava:guava:33.7.0-android")
 }
