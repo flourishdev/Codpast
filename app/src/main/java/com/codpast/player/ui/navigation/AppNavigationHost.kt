@@ -1,6 +1,6 @@
 package com.codpast.player.ui.navigation
 
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.PlayArrow
@@ -16,20 +16,17 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.navigation.NavGraph.Companion.findStartDestination
-import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import androidx.navigation.navArgument
 import com.codpast.player.ui.screens.EpisodeDetailScreen
 import com.codpast.player.ui.screens.ListenScreen
 import com.codpast.player.ui.screens.PodcastDetailScreen
 import com.codpast.player.ui.screens.QueueScreen
 import com.codpast.player.ui.screens.SearchScreen
 import com.codpast.player.ui.screens.SubscriptionsScreen
-import java.net.URLEncoder
-import java.nio.charset.StandardCharsets
+import com.codpast.player.ui.components.MiniPlayerBar
 
 sealed class BottomRoute(val route: String, val title: String, val icon: ImageVector) {
     object Listen : BottomRoute("listen", "Listen", Icons.Default.PlayArrow)
@@ -73,66 +70,99 @@ fun AppNavigationHost() {
             }
         }
     ) { innerPadding ->
-        NavHost(
-            navController = navController,
-            startDestination = BottomRoute.Listen.route,
-            modifier = Modifier.padding(innerPadding)
+        // 1. The Column wraps everything!
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
         ) {
-            composable(BottomRoute.Listen.route) { ListenScreen() }
-            composable(BottomRoute.Queue.route) { QueueScreen() }
-
-            composable(BottomRoute.Search.route) {
-                SearchScreen(
-                    onNavigateToDetail = { feedUrl ->
-                        val encodedUrl = URLEncoder.encode(feedUrl, StandardCharsets.UTF_8.toString())
-                        navController.navigate("podcast_detail?feedUrl=$encodedUrl")
-                    }
-                )
-            }
-
-            composable(BottomRoute.Subscriptions.route) {
-                SubscriptionsScreen(
-                    onNavigateToDetail = { podcastId ->
-                        navController.navigate("podcast_detail?podcastId=$podcastId")
-                    }
-                )
-            }
-
-            // Updated Route using Query Parameters for flexibility
-            composable(
-                route = "podcast_detail?podcastId={podcastId}&feedUrl={feedUrl}",
-                arguments = listOf(
-                    navArgument("podcastId") { type = NavType.StringType; nullable = true },
-                    navArgument("feedUrl") { type = NavType.StringType; nullable = true }
-                )
+            // 2. NavHost is INSIDE the Column, so weight(1f) works perfectly.
+            NavHost(
+                navController = navController,
+                startDestination = BottomRoute.Listen.route,
+                modifier = Modifier.weight(1f)
             ) {
-                PodcastDetailScreen(
-                    onNavigateBack = { navController.popBackStack() },
-                    onNavigateToEpisode = { episodeId, feedUrl ->
-                        val encodedId = URLEncoder.encode(episodeId, StandardCharsets.UTF_8.toString())
-                        if (feedUrl != null) {
-                            // If we have a feedUrl (unsubscribed), encode it and pass it along
-                            val encodedFeed = URLEncoder.encode(feedUrl, StandardCharsets.UTF_8.toString())
-                            navController.navigate("episode_detail/$encodedId?feedUrl=$encodedFeed")
-                        } else {
-                            // If it's already subscribed, we only need the ID
-                            navController.navigate("episode_detail/$encodedId")
+                composable(BottomRoute.Listen.route) { ListenScreen() }
+                composable(BottomRoute.Queue.route) { QueueScreen() }
+
+                composable(BottomRoute.Search.route) {
+                    SearchScreen(
+                        onNavigateToDetail = { feedUrl ->
+                            val encodedUrl = java.net.URLEncoder.encode(
+                                feedUrl,
+                                java.nio.charset.StandardCharsets.UTF_8.toString()
+                            )
+                            navController.navigate("podcast_detail?feedUrl=$encodedUrl")
                         }
-                    }
-                )
+                    )
+                }
+
+                composable(BottomRoute.Subscriptions.route) {
+                    SubscriptionsScreen(
+                        onNavigateToDetail = { podcastId ->
+                            navController.navigate("podcast_detail?podcastId=$podcastId")
+                        }
+                    )
+                }
+
+                composable(
+                    route = "podcast_detail?podcastId={podcastId}&feedUrl={feedUrl}",
+                    arguments = listOf(
+                        androidx.navigation.navArgument("podcastId") {
+                            type = androidx.navigation.NavType.StringType; nullable = true
+                        },
+                        androidx.navigation.navArgument("feedUrl") {
+                            type = androidx.navigation.NavType.StringType; nullable = true
+                        }
+                    )
+                ) {
+                    PodcastDetailScreen(
+                        onNavigateBack = { navController.popBackStack() },
+                        onNavigateToEpisode = { episodeId, feedUrl ->
+                            val encodedId = java.net.URLEncoder.encode(
+                                episodeId,
+                                java.nio.charset.StandardCharsets.UTF_8.toString()
+                            )
+                            if (feedUrl != null) {
+                                val encodedFeed = java.net.URLEncoder.encode(
+                                    feedUrl,
+                                    java.nio.charset.StandardCharsets.UTF_8.toString()
+                                )
+                                navController.navigate("episode_detail/$encodedId?feedUrl=$encodedFeed")
+                            } else {
+                                navController.navigate("episode_detail/$encodedId")
+                            }
+                        }
+                    )
+                }
+
+                composable(
+                    route = "episode_detail/{episodeId}?feedUrl={feedUrl}",
+                    arguments = listOf(
+                        androidx.navigation.navArgument("episodeId") {
+                            type = androidx.navigation.NavType.StringType
+                        },
+                        androidx.navigation.navArgument("feedUrl") {
+                            type = androidx.navigation.NavType.StringType; nullable = true
+                        }
+                    )
+                ) {
+                    EpisodeDetailScreen(
+                        onNavigateBack = { navController.popBackStack() }
+                    )
+                }
             }
 
-            composable(
-                route = "episode_detail/{episodeId}?feedUrl={feedUrl}",
-                arguments = listOf(
-                    navArgument("episodeId") { type = NavType.StringType },
-                    navArgument("feedUrl") { type = NavType.StringType; nullable = true }
-                )
-            ) {
-                EpisodeDetailScreen(
-                    onNavigateBack = { navController.popBackStack() }
-                )
-            }
+            // 3. MiniPlayerBar sits directly below the NavHost, still inside the Column!
+            MiniPlayerBar(
+                onNavigateToListen = {
+                    navController.navigate(BottomRoute.Listen.route) {
+                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
+                }
+            )
         }
     }
 }

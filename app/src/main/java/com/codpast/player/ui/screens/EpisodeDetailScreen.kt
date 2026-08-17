@@ -76,8 +76,8 @@ fun EpisodeDetailScreen(
                             model = episode.imageUrl.ifBlank { state.podcast?.artworkUrl ?: ""},
                             contentDescription = "Episode Artwork",
                             contentScale = ContentScale.Crop,
-                            placeholder = painterResource(id = R.mipmap.ic_launcher),
-                            error = painterResource(id = R.mipmap.ic_launcher),
+                            placeholder = painterResource(id = R.drawable.ic_launcher_foreground),
+                            error = painterResource(id = R.drawable.ic_launcher_foreground),
                             modifier = Modifier.size(100.dp).clip(RoundedCornerShape(8.dp))
                         )
                         Spacer(modifier = Modifier.width(16.dp))

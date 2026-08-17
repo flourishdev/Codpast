@@ -88,8 +88,8 @@ fun PodcastDetailScreen(
                                     model = state.podcast?.artworkUrl,
                                     contentDescription = null,
                                     contentScale = ContentScale.Crop,
-                                    placeholder = painterResource(id = R.mipmap.ic_launcher),
-                                    error = painterResource(id = R.mipmap.ic_launcher),
+                                    placeholder = painterResource(id = R.drawable.ic_launcher_foreground),
+                                    error = painterResource(id = R.drawable.ic_launcher_foreground),
                                     modifier = Modifier.size(160.dp).clip(RoundedCornerShape(12.dp))
                                 )
                                 Spacer(modifier = Modifier.height(16.dp))

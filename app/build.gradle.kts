@@ -103,4 +103,7 @@ dependencies {
     implementation(libs.lifecycle.runtime.compose)
 
     implementation(libs.coil.compose)
+
+// Compose Extended Icons
+    implementation(libs.androidx.material.icons.extended)
 }

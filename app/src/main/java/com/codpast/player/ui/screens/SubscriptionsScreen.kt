@@ -104,8 +104,8 @@ fun PodcastGridItem(
                 model = podcast.artworkUrl,
                 contentDescription = podcast.title,
                 contentScale = ContentScale.Crop,
-                placeholder = painterResource(id = R.mipmap.ic_launcher),
-                error = painterResource(id = R.mipmap.ic_launcher),
+                placeholder = painterResource(id = R.drawable.ic_launcher_foreground),
+                error = painterResource(id = R.drawable.ic_launcher_foreground),
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(1f)
