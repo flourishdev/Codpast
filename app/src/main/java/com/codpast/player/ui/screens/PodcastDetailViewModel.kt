@@ -194,11 +194,25 @@ class PodcastDetailViewModel @Inject constructor(
     }
 
     private fun enqueueEpisode(episodeId: String) {
+        val episode = _state.value.episodes.find { it.id == episodeId } ?: return
+        val podcast = _state.value.podcast ?: return
+
         viewModelScope.launch {
-            repository.enqueueEpisode(episodeId)
+            try {
+                // 1. Save locally so the Queue's INNER JOIN can find it
+                repository.savePodcastAndEpisodes(podcast, listOf(episode))
+
+                // 2. Add to Queue
+                repository.enqueueEpisode(episodeId)
+
+                // 3. Print success to Logcat!
+                android.util.Log.d("QueueDebug", "Successfully queued: ${episode.title}")
+            } catch (e: Exception) {
+                // 4. Print exact failure reason to Logcat!
+                android.util.Log.e("QueueDebug", "FAILED to queue episode", e)
+            }
         }
     }
-
     private fun downloadEpisode(episodeId: String) {
         // Architecture Next Step: Trigger WorkManager
     }

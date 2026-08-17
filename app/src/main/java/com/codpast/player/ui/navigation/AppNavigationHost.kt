@@ -100,7 +100,12 @@ fun AppNavigationHost() {
                 composable(BottomRoute.Subscriptions.route) {
                     SubscriptionsScreen(
                         onNavigateToDetail = { podcastId ->
-                            navController.navigate("podcast_detail?podcastId=$podcastId")
+                            // URL-Encode the ID so Compose Navigation doesn't mangle it!
+                            val encodedId = java.net.URLEncoder.encode(
+                                podcastId,
+                                java.nio.charset.StandardCharsets.UTF_8.toString()
+                            )
+                            navController.navigate("podcast_detail?podcastId=$encodedId")
                         }
                     )
                 }
