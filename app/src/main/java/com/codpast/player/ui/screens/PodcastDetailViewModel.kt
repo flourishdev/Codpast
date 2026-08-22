@@ -2,12 +2,14 @@ package com.codpast.player.ui.screens
 
 import android.content.ComponentName
 import android.content.Context
+import android.net.Uri
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.session.MediaController
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.session.SessionToken
 import com.codpast.player.data.repository.PodcastRepository
 import com.codpast.player.service.PodcastPlaybackService
@@ -165,13 +167,7 @@ class PodcastDetailViewModel @Inject constructor(
                 is PodcastDetailIntent.RefreshFeed -> refreshFeed()
                 is PodcastDetailIntent.ToggleSubscription -> toggleSubscription()
                 is PodcastDetailIntent.PlayEpisode -> {
-                    val episode = repository.playEpisode(intent.episodeId)
-                    episode?.audioUrl?.let { url ->
-                        val mediaItem = MediaItem.fromUri(url)
-                        mediaController?.setMediaItem(mediaItem)
-                        mediaController?.prepare()
-                        mediaController?.play()
-                    }
+                    repository.playEpisode(intent.episodeId)
                 }
                 is PodcastDetailIntent.EnqueueEpisode -> {
                     repository.playEpisode(intent.episodeId)

@@ -36,8 +36,16 @@ class PlaybackProgressManager @Inject constructor(
     private val _currentEpisodeId = MutableStateFlow<String?>(null)
     val currentEpisodeId: StateFlow<String?> = _currentEpisodeId.asStateFlow()
 
-    fun setCurrentEpisode(episodeId: String?) {
+    private val _currentEpisode = MutableStateFlow<EpisodeEntity?>(null)
+    val currentEpisode: StateFlow<EpisodeEntity?> = _currentEpisode.asStateFlow()
+
+    fun setCurrentEpisode(episodeId: String) {
         _currentEpisodeId.value = episodeId
+        applicationScope.launch {
+            podcastDao.getEpisodeById(episodeId).collect { episode ->
+                _currentEpisode.value = episode
+            }
+        }
     }
 
     @Synchronized

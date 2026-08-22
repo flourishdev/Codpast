@@ -35,12 +35,14 @@ class PodcastPlaybackService : MediaLibraryService() {
     lateinit var progressManager: PlaybackProgressManager
 
     @Inject
+    lateinit var playbackProgressManager: PlaybackProgressManager
+
+    @Inject
     lateinit var repository: PodcastRepository
 
-    private lateinit var player: ExoPlayer
-    private lateinit var mediaLibrarySession: MediaLibrarySession
-
-    private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private var player: ExoPlayer? = null
+    private var mediaSession: MediaSession? = null
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     override fun onCreate() {
         super.onCreate()
@@ -68,6 +70,7 @@ class PodcastPlaybackService : MediaLibraryService() {
 
         // 4. Start the 500ms ticker for smooth UI position updates
         startMemoryTicker()
+        observePlaybackManager()
     }
 
     private fun setupPlayerListeners() {
@@ -156,6 +159,7 @@ class PodcastPlaybackService : MediaLibraryService() {
 
     override fun onDestroy() {
         // System killing service -> force synchronous DB flush and clean up resources
+        serviceScope.cancel()
         progressManager.onTeardown()
         mediaLibrarySession.release()
         player.release()
@@ -231,6 +235,33 @@ class PodcastPlaybackService : MediaLibraryService() {
                 else -> Futures.immediateFuture(
                     LibraryResult.ofError(androidx.media3.session.SessionError.ERROR_BAD_VALUE)
                 )
+            }
+        }
+    }
+    private fun observePlaybackManager() {
+        serviceScope.launch {
+            playbackProgressManager.currentEpisode.collect { episode ->
+                episode?.let { ep ->
+                    player?.let { exoPlayer ->
+                        val currentMediaId = exoPlayer.currentMediaItem?.mediaId
+                        if (currentMediaId != ep.id && !ep.audioUrl.isNullOrEmpty()) {
+                            val metadata = MediaMetadata.Builder()
+                                .setTitle(ep.title)
+                                .setArtworkUri(ep.imageUrl?.let { Uri.parse(it) })
+                                .build()
+
+                            val mediaItem = MediaItem.Builder()
+                                .setMediaId(ep.id)
+                                .setUri(ep.audioUrl)
+                                .setMediaMetadata(metadata)
+                                .build()
+
+                            exoPlayer.setMediaItem(mediaItem)
+                            exoPlayer.prepare()
+                            exoPlayer.play()
+                        }
+                    }
+                }
             }
         }
     }
