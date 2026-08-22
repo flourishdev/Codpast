@@ -20,10 +20,12 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.codpast.player.ui.screens.EpisodeDetailScreen
 import com.codpast.player.ui.screens.ListenScreen
 import com.codpast.player.ui.screens.PodcastDetailScreen
 import com.codpast.player.ui.screens.QueueScreen
+import com.codpast.player.ui.screens.QueueViewModel
 import com.codpast.player.ui.screens.SearchScreen
 import com.codpast.player.ui.screens.SubscriptionsScreen
 import com.codpast.player.ui.components.MiniPlayerBar
@@ -83,7 +85,10 @@ fun AppNavigationHost() {
                 modifier = Modifier.weight(1f)
             ) {
                 composable(BottomRoute.Listen.route) { ListenScreen() }
-                composable(BottomRoute.Queue.route) { QueueScreen() }
+                composable(BottomRoute.Queue.route) {
+                    val queueViewModel: QueueViewModel = hiltViewModel()
+                    QueueScreen(viewModel = queueViewModel)
+                }
 
                 composable(BottomRoute.Search.route) {
                     SearchScreen(

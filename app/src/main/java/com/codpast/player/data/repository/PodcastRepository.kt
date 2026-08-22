@@ -5,21 +5,27 @@ import com.codpast.player.data.local.dao.PodcastDao
 import com.codpast.player.data.local.entity.EpisodeEntity
 import com.codpast.player.data.local.entity.PodcastEntity
 import com.codpast.player.data.network.PodcastIndexApi
+import com.codpast.player.data.local.entity.QueueEntity
+import com.codpast.player.data.local.entity.QueueWithEpisode
+import com.codpast.player.data.repository.PlaybackProgressManager
 import kotlinx.coroutines.flow.Flow
 import javax.inject.Inject
+import javax.inject.Singleton
 import com.prof18.rssparser.RssParserBuilder
 import java.text.SimpleDateFormat
 import java.util.Locale
 import kotlin.collections.mapNotNull
+import kotlinx.coroutines.flow.firstOrNull
 
 enum class PositionMode {
     APPEND,
     PLAY_NEXT
 }
 
+@Singleton
 class PodcastRepository @Inject constructor(
     private val podcastDao: PodcastDao,
-    private val api: PodcastIndexApi // Injected the API
+    private val playbackProgressManager: PlaybackProgressManager
 ) {
     // Initialize the RSS Parser
     private val rssParser = RssParserBuilder().build()
@@ -83,7 +89,7 @@ class PodcastRepository @Inject constructor(
         return podcastDao.getEpisodesByPodcastId(podcastId)
     }
 
-    suspend fun savePodcastAndEpisodes(podcast: com.codpast.player.data.local.entity.PodcastEntity, episodes: List<com.codpast.player.data.local.entity.EpisodeEntity>) {
+    suspend fun savePodcastAndEpisodes(podcast: PodcastEntity, episodes: List<com.codpast.player.data.local.entity.EpisodeEntity>) {
         podcastDao.insertPodcast(podcast)
         podcastDao.insertEpisodes(episodes)
     }
@@ -114,15 +120,11 @@ class PodcastRepository @Inject constructor(
         podcastDao.insertQueueItem(queueItem)
     }
 
-    suspend fun reorderQueue(orderedEpisodes: List<com.codpast.player.data.local.entity.QueueEntity>) {
-        podcastDao.updateQueueOrder(orderedEpisodes)
-    }
-
     suspend fun removeFromQueue(episodeId: String) = podcastDao.deleteQueueItem(episodeId)
 
     suspend fun clearQueue() = podcastDao.clearQueue()
 
-    fun getQueueEpisodes(): kotlinx.coroutines.flow.Flow<List<com.codpast.player.data.local.entity.EpisodeEntity>> {
+    fun getQueueEpisodes(): Flow<List<EpisodeEntity>> {
         return podcastDao.getQueueEpisodes()
     }
 
@@ -192,4 +194,33 @@ class PodcastRepository @Inject constructor(
         val nextPos = podcastDao.getNextPosition()
         podcastDao.reEnqueueEpisode(episodeId, nextPos)
     }
+
+    suspend fun playEpisode(episodeId: String): EpisodeEntity? {
+        if (!podcastDao.isEpisodeInQueue(episodeId)) {
+            val maxPos = podcastDao.getMaxQueuePosition() ?: -1
+            podcastDao.addToQueue(
+                QueueEntity(
+                    episodeId = episodeId,
+                    position = maxPos + 1
+                )
+            )
+        }
+        playbackProgressManager.setCurrentEpisode(episodeId)
+
+        // Return episode so caller can command MediaController to play
+        return podcastDao.getEpisodeById(episodeId).firstOrNull()
+    }
+
+    suspend fun reorderQueue(fromIndex: Int, toIndex: Int) {
+        val currentQueue: List<QueueWithEpisode> = podcastDao.getQueueSync()
+        if (fromIndex in currentQueue.indices && toIndex in currentQueue.indices) {
+            val mutable = currentQueue.toMutableList()
+            val item = mutable.removeAt(fromIndex)
+            mutable.add(toIndex, item)
+
+            val updatedQueueEntities = mutable.map { it.queueItem }
+            podcastDao.updateQueueOrder(updatedQueueEntities)
+        }
+    }
+    fun getQueue(): Flow<List<QueueWithEpisode>> = podcastDao.getQueue()
 }

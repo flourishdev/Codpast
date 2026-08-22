@@ -7,6 +7,8 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import com.codpast.player.data.local.entity.EpisodeEntity
 import com.codpast.player.data.local.entity.PodcastEntity
+import com.codpast.player.data.local.entity.QueueEntity
+import com.codpast.player.data.local.entity.QueueWithEpisode
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -38,48 +40,48 @@ interface PodcastDao {
     @Query("SELECT * FROM episodes WHERE podcastId = :podcastId ORDER BY publishedAt DESC")
     fun getEpisodesByPodcastId(podcastId: String): Flow<List<EpisodeEntity>>
 
-    @androidx.room.Query("DELETE FROM podcasts WHERE id = :podcastId")
+    @Query("DELETE FROM podcasts WHERE id = :podcastId")
     suspend fun deletePodcast(podcastId: String)
 
-    @androidx.room.Query("DELETE FROM episodes WHERE podcastId = :podcastId")
+    @Query("DELETE FROM episodes WHERE podcastId = :podcastId")
     suspend fun deleteEpisodesByPodcastId(podcastId: String)
 
 // --- Queue Management ---
 
-    @androidx.room.Insert(onConflict = androidx.room.OnConflictStrategy.REPLACE)
-    suspend fun insertQueueItem(queueItem: com.codpast.player.data.local.entity.QueueEntity)
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertQueueItem(queueItem: QueueEntity)
 
     @androidx.room.Update
-    suspend fun updateQueueItems(items: List<com.codpast.player.data.local.entity.QueueEntity>)
+    suspend fun updateQueueItems(items: List<QueueEntity>)
 
-    @androidx.room.Query("SELECT COALESCE(MAX(position), -1) + 1 FROM queue")
+    @Query("SELECT COALESCE(MAX(position), -1) + 1 FROM queue")
     suspend fun getNextPosition(): Int
 
-    @androidx.room.Query("UPDATE queue SET position = position + 1 WHERE position >= :fromPosition")
+    @Query("UPDATE queue SET position = position + 1 WHERE position >= :fromPosition")
     suspend fun shiftPositionsUp(fromPosition: Int)
 
     @androidx.room.Transaction
-    suspend fun updateQueueOrder(episodes: List<com.codpast.player.data.local.entity.QueueEntity>) {
+    suspend fun updateQueueOrder(episodes: List<QueueEntity>) {
         val reindexed = episodes.mapIndexed { index, entity ->
             entity.copy(position = index)
         }
         updateQueueItems(reindexed)
     }
 
-    @androidx.room.Query("DELETE FROM queue WHERE episodeId = :episodeId")
+    @Query("DELETE FROM queue WHERE episodeId = :episodeId")
     suspend fun deleteQueueItem(episodeId: String)
 
-    @androidx.room.Query("DELETE FROM queue")
+    @Query("DELETE FROM queue")
     suspend fun clearQueue()
 
-    @androidx.room.Query(
+    @Query(
         "SELECT episodes.* FROM episodes " +
                 "INNER JOIN queue ON episodes.id = queue.episodeId " +
                 "ORDER BY queue.position ASC"
     )
-    fun getQueueEpisodes(): kotlinx.coroutines.flow.Flow<List<com.codpast.player.data.local.entity.EpisodeEntity>>
+    fun getQueueEpisodes(): Flow<List<EpisodeEntity>>
 
-    @androidx.room.Query("UPDATE episodes SET isCompleted = :isCompleted, playbackPosition = :position WHERE id = :episodeId")
+    @Query("UPDATE episodes SET isCompleted = :isCompleted, playbackPosition = :position WHERE id = :episodeId")
     suspend fun updateEpisodeCompletion(episodeId: String, isCompleted: Boolean, position: Long = 0L)
 
     @androidx.room.Transaction
@@ -91,10 +93,27 @@ interface PodcastDao {
     @androidx.room.Transaction
     suspend fun reEnqueueEpisode(episodeId: String, nextPosition: Int) {
         updateEpisodeCompletion(episodeId, isCompleted = false, position = 0L)
-        insertQueueItem(com.codpast.player.data.local.entity.QueueEntity(episodeId, nextPosition))
+        insertQueueItem(QueueEntity(episodeId, nextPosition))
     }
 
     @androidx.room.Transaction
-    @androidx.room.Query("SELECT * FROM queue ORDER BY position ASC")
-    suspend fun getQueueSnapshotWithEpisodes(): List<com.codpast.player.data.local.entity.QueueWithEpisode>
+    @Query("SELECT * FROM queue ORDER BY position ASC")
+    suspend fun getQueueSnapshotWithEpisodes(): List<QueueWithEpisode>
+
+    @androidx.room.Transaction
+    @Query("SELECT * FROM queue ORDER BY position ASC")
+    suspend fun getQueueSync(): List<QueueWithEpisode>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun addToQueue(queueItem: QueueEntity)
+
+    @Query("SELECT EXISTS(SELECT 1 FROM queue WHERE episodeId = :episodeId)")
+    suspend fun isEpisodeInQueue(episodeId: String): Boolean
+
+    @Query("SELECT MAX(position) FROM queue")
+    suspend fun getMaxQueuePosition(): Int?
+
+    @androidx.room.Transaction
+    @Query("SELECT * FROM queue ORDER BY position ASC")
+    fun getQueue(): Flow<List<QueueWithEpisode>>
 }

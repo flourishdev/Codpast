@@ -95,7 +95,7 @@ fun PodcastDetailScreen(
                                 )
                                 Spacer(modifier = Modifier.height(16.dp))
                                 Button(
-                                    onClick = { viewModel.onIntent(PodcastDetailIntent.ToggleSubscription) }
+                                    onClick = { viewModel.onIntent(PodcastDetailIntent.ToggleSubscription)}
                                 ) {
                                     Text(if (state.podcast?.isSubscribed == true) "Subscribed" else "Subscribe")
                                 }

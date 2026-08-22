@@ -33,6 +33,13 @@ class PlaybackProgressManager @Inject constructor(
 
     private var periodicSaveJob: Job? = null
 
+    private val _currentEpisodeId = MutableStateFlow<String?>(null)
+    val currentEpisodeId: StateFlow<String?> = _currentEpisodeId.asStateFlow()
+
+    fun setCurrentEpisode(episodeId: String?) {
+        _currentEpisodeId.value = episodeId
+    }
+
     @Synchronized
     fun updateProgress(episodeId: String, positionMs: Long) {
         val currentActive = activeEpisodeId.get()

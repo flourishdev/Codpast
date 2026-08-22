@@ -2,6 +2,7 @@
 package com.codpast.player.di
 
 import com.codpast.player.data.local.dao.PodcastDao
+import com.codpast.player.data.repository.PlaybackProgressManager
 import com.codpast.player.data.repository.PodcastRepository
 import com.codpast.player.data.network.PodcastIndexApi
 import dagger.Module
@@ -28,8 +29,8 @@ object AppModule {
     @Singleton
     fun providePodcastRepository(
         podcastDao: PodcastDao,
-        api: PodcastIndexApi
+        playbackProgressManager: PlaybackProgressManager
     ): PodcastRepository {
-        return PodcastRepository(podcastDao, api)
+        return PodcastRepository(podcastDao, playbackProgressManager)
     }
 }

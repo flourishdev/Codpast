@@ -1,5 +1,8 @@
 package com.codpast.player.ui.mvi
 
+interface MviState
+interface MviIntent
+interface MviEffect
 /** Immutable snapshot of the UI at a given moment in time */
 interface UiState
 

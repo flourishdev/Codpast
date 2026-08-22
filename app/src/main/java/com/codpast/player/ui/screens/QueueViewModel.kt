@@ -2,55 +2,71 @@ package com.codpast.player.ui.screens
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.codpast.player.data.local.entity.QueueWithEpisode
+import com.codpast.player.data.repository.PlaybackProgressManager
 import com.codpast.player.data.repository.PodcastRepository
-import com.codpast.player.ui.mvi.QueueIntent
-import com.codpast.player.ui.mvi.QueueUiState
+import com.codpast.player.ui.mvi.QueueContract
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
 class QueueViewModel @Inject constructor(
-    private val repository: PodcastRepository
+    private val repository: PodcastRepository,
+    private val playbackProgressManager: PlaybackProgressManager
 ) : ViewModel() {
 
-    // Architecture Next Step: Observe List<QueueEntity> from Room Database
-    private val _state = MutableStateFlow(QueueUiState())
-    val state: StateFlow<QueueUiState> = _state.asStateFlow()
+    private val _uiState = MutableStateFlow(QueueContract.State())
+    val uiState: StateFlow<QueueContract.State> = _uiState.asStateFlow()
+
+    private val _effect = MutableSharedFlow<QueueContract.Effect>()
+    val effect: SharedFlow<QueueContract.Effect> = _effect.asSharedFlow()
 
     init {
-        observeQueue()
+        observeQueueAndPlayback()
     }
 
-    private fun observeQueue() {
+    private fun observeQueueAndPlayback() {
         viewModelScope.launch {
-            // Continuously observe the queue table for any changes
-            repository.getQueueEpisodes().collectLatest { queuedEpisodes ->
-                _state.update {
-                    it.copy(
-                        // Make sure this matches the property name in your QueueUiState (e.g., queue, episodes, or queueEpisodes)
-                        queueItems = queuedEpisodes
+            combine(
+                repository.getQueue(),
+                playbackProgressManager.currentEpisodeId
+            ) { queueItems: List<QueueWithEpisode>, currentId: String? ->
+                Pair(queueItems, currentId)
+            }.collect { (queueItems, currentId) ->
+                _uiState.update { currentState ->
+                    currentState.copy(
+                        queueItems = queueItems,
+                        currentlyPlayingEpisodeId = currentId
                     )
                 }
             }
         }
     }
 
-    fun onIntent(intent: QueueIntent) {
-        when (intent) {
-            is QueueIntent.PlayFromQueue -> {
-                // Architecture Next Step: Pipe to MediaController
-            }
-            is QueueIntent.RemoveFromQueue -> {
-                viewModelScope.launch { repository.removeFromQueue(intent.episodeId) }
-            }
-            is QueueIntent.ClearQueue -> {
-                viewModelScope.launch { repository.clearQueue() }
+    fun handleIntent(intent: QueueContract.Intent) {
+        viewModelScope.launch {
+            when (intent) {
+                is QueueContract.Intent.PlayEpisode -> {
+                    repository.playEpisode(intent.episodeId)
+                }
+                is QueueContract.Intent.RemoveFromQueue -> {
+                    repository.removeFromQueue(intent.episodeId)
+                }
+                is QueueContract.Intent.ReorderQueue -> {
+                    repository.reorderQueue(intent.fromIndex, intent.toIndex)
+                }
+                QueueContract.Intent.ClearQueue -> {
+                    repository.clearQueue()
+                }
             }
         }
     }

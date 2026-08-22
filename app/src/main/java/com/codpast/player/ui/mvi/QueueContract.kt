@@ -1,15 +1,23 @@
 package com.codpast.player.ui.mvi
 
 import com.codpast.player.data.local.entity.EpisodeEntity
+import com.codpast.player.data.local.entity.QueueWithEpisode
 
-data class QueueUiState(
-    val isLoading: Boolean = false,
-    val queueItems: List<EpisodeEntity> = emptyList(), // Later, join this with QueueEntity for sorting
-    val errorMessage: String? = null
-) : UiState
+object QueueContract {
+    data class State(
+        val queueItems: List<QueueWithEpisode> = emptyList(),
+        val currentlyPlayingEpisodeId: String? = null,
+        val isLoading: Boolean = false
+    ) : MviState
 
-sealed class QueueIntent : UserIntent {
-    data class PlayFromQueue(val episodeId: String) : QueueIntent()
-    data class RemoveFromQueue(val episodeId: String) : QueueIntent()
-    object ClearQueue : QueueIntent()
+    sealed interface Intent : MviIntent {
+        data class PlayEpisode(val episodeId: String) : Intent
+        data class RemoveFromQueue(val episodeId: String) : Intent
+        data class ReorderQueue(val fromIndex: Int, val toIndex: Int) : Intent
+        data object ClearQueue : Intent
+    }
+
+    sealed interface Effect : MviEffect {
+        data class ShowToast(val message: String) : Effect
+    }
 }
