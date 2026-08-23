@@ -1,23 +1,30 @@
 package com.codpast.player.util
 
-import androidx.core.net.toUri
+import android.net.Uri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import com.codpast.player.data.local.entity.EpisodeEntity
 import com.codpast.player.data.local.entity.PodcastEntity
 
-fun EpisodeEntity.toMediaItem(podcast: PodcastEntity?): MediaItem {
-    // 1. Build the metadata for the Android Lock Screen & Notification Tray
+/**
+ * Single source of truth helper for building a fully populated Media3 MediaItem
+ * containing MediaMetadata required for Android System Notification, MiniPlayer, and ListenScreen.
+ */
+fun EpisodeEntity.toMediaItem(podcast: PodcastEntity? = null): MediaItem {
+    val podcastName = podcast?.title?.takeIf { it.isNotBlank() } ?: "Podcast Episode"
+
     val metadata = MediaMetadata.Builder()
         .setTitle(title)
-        .setArtist(podcast?.title ?: "Unknown Podcast")
-        .setArtworkUri((imageUrl.ifBlank { podcast?.artworkUrl ?: "" }).toUri())
+        .setArtist(podcastName)
+        .setAlbumTitle(podcastName)
+        .setArtworkUri(
+            (imageUrl ?: podcast?.artworkUrl)?.takeIf { it.isNotEmpty() }?.let { Uri.parse(it) }
+        )
         .build()
 
-    // 2. Build the actual playable item with the audio URL
     return MediaItem.Builder()
         .setMediaId(id)
-        .setUri(audioUrl)
+        .setUri(Uri.parse(audioUrl))
         .setMediaMetadata(metadata)
         .build()
 }

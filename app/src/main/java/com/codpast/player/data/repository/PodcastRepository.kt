@@ -89,6 +89,14 @@ class PodcastRepository @Inject constructor(
         return podcastDao.getEpisodesByPodcastId(podcastId)
     }
 
+    suspend fun getEpisodeByIdSnapshot(episodeId: String): EpisodeEntity? {
+        return podcastDao.getEpisodeById(episodeId).firstOrNull()
+    }
+
+    suspend fun getPodcastByIdSnapshot(podcastId: String): PodcastEntity? {
+        return podcastDao.getPodcastById(podcastId).firstOrNull()
+    }
+
     suspend fun savePodcastAndEpisodes(podcast: PodcastEntity, episodes: List<com.codpast.player.data.local.entity.EpisodeEntity>) {
         podcastDao.insertPodcast(podcast)
         podcastDao.insertEpisodes(episodes)

@@ -9,6 +9,7 @@ import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import com.codpast.player.data.repository.PodcastRepository
 import com.codpast.player.service.PodcastPlaybackService
 import com.codpast.player.ui.mvi.PlayerIntent
 import com.codpast.player.ui.mvi.PlayerUiState
@@ -25,6 +26,7 @@ import javax.inject.Inject
 
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
+    private val repository: PodcastRepository,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -66,7 +68,7 @@ class PlayerViewModel @Inject constructor(
                 _state.update {
                     it.copy(
                         isPlaying = player.isPlaying,
-                        hasNextEpisode = player.hasNextMediaItem() // This flips the boolean to unlock the Next button!
+                        hasNextEpisode = player.hasNextMediaItem() // Flips boolean to unlock Next button
                     )
                 }
             }
@@ -74,10 +76,8 @@ class PlayerViewModel @Inject constructor(
             override fun onPlaybackStateChanged(playbackState: Int) {
                 _state.update {
                     it.copy(
-                        // STATE_BUFFERING applies to both initial preparation and mid-playback network stalls
                         isBuffering = playbackState == Player.STATE_BUFFERING,
                         isPreparing = playbackState == Player.STATE_BUFFERING,
-
                         durationMs = if (playbackState == Player.STATE_READY) {
                             mediaController?.duration?.coerceAtLeast(0L) ?: 0L
                         } else {
@@ -87,7 +87,7 @@ class PlayerViewModel @Inject constructor(
                 }
             }
 
-            // 2. Listen for track changes to update the MiniPlayer artwork and title!
+            // 2. Listen for track changes to update MiniPlayer artwork and title
             override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
                 updateCurrentMediaItem(mediaItem)
             }
@@ -95,44 +95,69 @@ class PlayerViewModel @Inject constructor(
     }
 
     private fun updateCurrentMediaItem(mediaItem: androidx.media3.common.MediaItem?) {
-        if (mediaItem == null) return
+        if (mediaItem == null) {
+            _state.update {
+                it.copy(
+                    currentEpisode = null,
+                    currentPodcast = null
+                )
+            }
+            return
+        }
 
-        val metadata = mediaItem.mediaMetadata
+        val episodeId = mediaItem.mediaId
 
-        // Reconstruct just enough dummy data from the MediaItem so the UI can display it
-        val episode = com.codpast.player.data.local.entity.EpisodeEntity(
-            id = mediaItem.mediaId,
-            podcastId = "playing_podcast",
-            title = metadata.title?.toString() ?: "Unknown",
-            description = "",
-            audioUrl = "",
-            imageUrl = metadata.artworkUri?.toString() ?: "",
-            publishedAt = 0L,
-            duration = 0L,
-            isCompleted = false,
-            playbackPosition = 0L
-        )
+        viewModelScope.launch {
+            // Attempt to fetch real entities from Room SSOT using episodeId
+            val realEpisode = repository.getEpisodeByIdSnapshot(episodeId)
+            val realPodcast = realEpisode?.podcastId?.let { repository.getPodcastByIdSnapshot(it) }
 
-        val podcast = com.codpast.player.data.local.entity.PodcastEntity(
-            id = "playing_podcast",
-            title = metadata.artist?.toString() ?: "Unknown",
-            description = "",
-            artworkUrl = metadata.artworkUri?.toString() ?: "",
-            feedUrl = "",
-            isSubscribed = false
-        )
+            if (realEpisode != null) {
+                _state.update {
+                    it.copy(
+                        currentEpisode = realEpisode,
+                        currentPodcast = realPodcast,
+                        durationMs = mediaController?.duration?.coerceAtLeast(0L) ?: 0L
+                    )
+                }
+            } else {
+                // Fallback for external URIs using MediaMetadata payload
+                val metadata = mediaItem.mediaMetadata
 
-        _state.update {
-            it.copy(
-                currentEpisode = episode,
-                currentPodcast = podcast,
-                durationMs = mediaController?.duration?.coerceAtLeast(0L) ?: 0L
-            )
+                val fallbackEpisode = com.codpast.player.data.local.entity.EpisodeEntity(
+                    id = mediaItem.mediaId,
+                    podcastId = "unknown_podcast",
+                    title = metadata.title?.toString() ?: "Unknown Episode",
+                    description = "",
+                    audioUrl = "",
+                    imageUrl = metadata.artworkUri?.toString() ?: "",
+                    publishedAt = 0L,
+                    duration = 0L,
+                    isCompleted = false,
+                    playbackPosition = 0L
+                )
+
+                val fallbackPodcast = com.codpast.player.data.local.entity.PodcastEntity(
+                    id = "unknown_podcast",
+                    title = metadata.artist?.toString() ?: metadata.albumTitle?.toString() ?: "Unknown Podcast",
+                    description = "",
+                    artworkUrl = metadata.artworkUri?.toString() ?: "",
+                    feedUrl = "",
+                    isSubscribed = false
+                )
+
+                _state.update {
+                    it.copy(
+                        currentEpisode = fallbackEpisode,
+                        currentPodcast = fallbackPodcast,
+                        durationMs = mediaController?.duration?.coerceAtLeast(0L) ?: 0L
+                    )
+                }
+            }
         }
     }
 
     private fun startProgressTracker() {
-        // This loop updates the slider scrubber every second while audio is playing
         viewModelScope.launch {
             while (true) {
                 if (_state.value.isPlaying) {
@@ -183,7 +208,6 @@ class PlayerViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
-        // Prevent memory leaks when the ViewModel dies
         mediaControllerFuture?.let { MediaController.releaseFuture(it) }
     }
 }
