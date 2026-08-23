@@ -1,5 +1,4 @@
 package com.codpast.player.ui.screens
-import androidx.compose.ui.res.painterResource
 import com.codpast.player.R
 
 import androidx.compose.foundation.layout.Arrangement
@@ -17,7 +16,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
@@ -41,11 +39,16 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import coil.compose.rememberAsyncImagePainter
 import com.codpast.player.data.local.entity.EpisodeEntity
 import com.codpast.player.ui.mvi.PodcastDetailIntent
 import android.text.format.DateUtils
 import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalButton
+
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -62,7 +65,7 @@ fun PodcastDetailScreen(
                 title = { Text(state.podcast?.title ?: "Loading...") },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 }
             )
@@ -89,16 +92,34 @@ fun PodcastDetailScreen(
                                     model = state.podcast?.artworkUrl,
                                     contentDescription = null,
                                     contentScale = ContentScale.Crop,
-                                    placeholder = painterResource(id = R.drawable.ic_launcher_foreground),
-                                    error = painterResource(id = R.drawable.ic_launcher_foreground),
+                                    placeholder = rememberAsyncImagePainter(model = R.mipmap.ic_launcher),
+                                    error = rememberAsyncImagePainter(model = R.mipmap.ic_launcher),
                                     modifier = Modifier.size(160.dp).clip(RoundedCornerShape(12.dp))
                                 )
                                 Spacer(modifier = Modifier.height(16.dp))
-                                Button(
-                                    onClick = { viewModel.onIntent(PodcastDetailIntent.ToggleSubscription)}
-                                ) {
-                                    Text(if (state.podcast?.isSubscribed == true) "Subscribed" else "Subscribe")
+
+                                val isSubscribed = state.podcast?.isSubscribed == true
+
+                                if (isSubscribed) {
+                                    FilledTonalButton(
+                                        onClick = { viewModel.onIntent(PodcastDetailIntent.ToggleSubscription) },
+                                        colors = ButtonDefaults.filledTonalButtonColors(
+                                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                        ),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text("Unsubscribe")
+                                    }
+                                } else {
+                                    Button(
+                                        onClick = { viewModel.onIntent(PodcastDetailIntent.ToggleSubscription) },
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text("Subscribe")
+                                    }
                                 }
+
                                 Spacer(modifier = Modifier.height(16.dp))
                                 Text(
                                     text = state.podcast?.description ?: "",

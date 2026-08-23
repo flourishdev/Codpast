@@ -13,12 +13,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import coil.compose.rememberAsyncImagePainter
 import com.codpast.player.R
 import com.codpast.player.ui.mvi.PlayerIntent
 import com.codpast.player.ui.screens.PlayerViewModel
@@ -50,8 +50,8 @@ fun MiniPlayerBar(
                 model = state.currentEpisode?.imageUrl ?: state.currentPodcast?.artworkUrl,
                 contentDescription = "Artwork",
                 contentScale = ContentScale.Crop,
-                placeholder = painterResource(id = R.drawable.ic_launcher_foreground),
-                error = painterResource(id = R.drawable.ic_launcher_foreground),
+                placeholder = rememberAsyncImagePainter(model = R.mipmap.ic_launcher),
+                error = rememberAsyncImagePainter(model = R.mipmap.ic_launcher),
                 modifier = Modifier
                     .size(48.dp)
                     .clip(RoundedCornerShape(8.dp))

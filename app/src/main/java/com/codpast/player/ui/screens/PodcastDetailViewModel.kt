@@ -2,21 +2,16 @@ package com.codpast.player.ui.screens
 
 import android.content.ComponentName
 import android.content.Context
-import android.net.Uri
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.session.MediaController
-import androidx.media3.common.MediaItem
-import androidx.media3.common.MediaMetadata
 import androidx.media3.session.SessionToken
 import com.codpast.player.data.repository.PodcastRepository
 import com.codpast.player.service.PodcastPlaybackService
 import com.codpast.player.ui.mvi.PodcastDetailIntent
 import com.codpast.player.ui.mvi.PodcastDetailUiState
-import com.codpast.player.ui.mvi.QueueContract
-import com.codpast.player.util.toMediaItem
 import com.google.common.util.concurrent.ListenableFuture
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -24,7 +19,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -54,6 +48,25 @@ class PodcastDetailViewModel @Inject constructor(
         loadPodcastDetails()
         initializeController()
         observeQueueState()
+        observeSubscriptionStatus()
+    }
+
+    private fun observeSubscriptionStatus() {
+        val targetId = podcastId ?: feedUrl
+        if (!targetId.isNullOrBlank()) {
+            viewModelScope.launch {
+                repository.getPodcastById(targetId).collect { dbPodcast ->
+                    if (dbPodcast != null) {
+                        _state.update { currentState ->
+                            currentState.copy(
+                                podcast = dbPodcast,
+                                isSubscribed = dbPodcast.isSubscribed
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private fun initializeController() {
@@ -86,51 +99,58 @@ class PodcastDetailViewModel @Inject constructor(
             try {
                 var targetFeedUrl = feedUrl
                 var isCurrentlySubscribed = false
+
+                // 1. Check local DB snapshot to see if we are already subscribed
+                val targetId = podcastId ?: feedUrl
                 var localPodcast: com.codpast.player.data.local.entity.PodcastEntity? = null
 
-                // 1. Check local DB to see if we are already subscribed
-                if (podcastId != null) {
-                    localPodcast = repository.getPodcastById(podcastId).firstOrNull()
-                    if (localPodcast != null) {
+                if (!targetId.isNullOrBlank()) {
+                    localPodcast = repository.getPodcastByIdSnapshot(targetId)
+                    if (localPodcast != null && localPodcast.isSubscribed) {
                         isCurrentlySubscribed = true
-                        // If Subscriptions screen didn't pass a feedUrl, grab it from the saved podcast!
                         if (targetFeedUrl.isNullOrBlank()) {
                             targetFeedUrl = localPodcast.feedUrl
                         }
                     }
                 }
 
-                // 2. Fetch the absolute latest episodes from the Network (so it's always up to date)
+                // 2. Fetch the absolute latest episodes from the Network
                 if (!targetFeedUrl.isNullOrBlank()) {
-                    val remotePodcast = repository.parseRssUrl(targetFeedUrl!!)
+                    val remotePodcast = repository.parseRssUrl(targetFeedUrl)
                     if (remotePodcast != null) {
-                        val remoteEpisodes = repository.fetchEpisodes(remotePodcast.id, targetFeedUrl!!)
+                        val remoteEpisodes = repository.fetchEpisodes(remotePodcast.id, targetFeedUrl)
+
+                        // Preserve subscription state on the remote podcast object
+                        val finalPodcast = remotePodcast.copy(
+                            id = targetId ?: remotePodcast.id,
+                            isSubscribed = isCurrentlySubscribed
+                        )
 
                         _state.update {
                             it.copy(
                                 isLoading = false,
-                                podcast = remotePodcast,
+                                podcast = finalPodcast,
                                 episodes = remoteEpisodes,
                                 isSubscribed = isCurrentlySubscribed
                             )
                         }
 
-                        // Architecture Bonus: Automatically update the DB with new episodes if subscribed
+                        // Automatically update DB if already subscribed
                         if (isCurrentlySubscribed) {
-                            repository.savePodcastAndEpisodes(remotePodcast, remoteEpisodes)
+                            repository.savePodcastAndEpisodes(finalPodcast, remoteEpisodes)
                         }
                     } else {
                         throw Exception("Failed to load podcast from feed.")
                     }
                 } else if (localPodcast != null) {
-                    // 3. Fallback: Load local DB episodes if we somehow have no URL
+                    // 3. Offline Fallback: Load local DB episodes
                     val localEpisodes = repository.getEpisodesByPodcastId(localPodcast.id).firstOrNull() ?: emptyList()
                     _state.update {
                         it.copy(
                             isLoading = false,
                             podcast = localPodcast,
                             episodes = localEpisodes,
-                            isSubscribed = true
+                            isSubscribed = localPodcast.isSubscribed
                         )
                     }
                 } else {
@@ -138,10 +158,11 @@ class PodcastDetailViewModel @Inject constructor(
                 }
 
             } catch (e: Exception) {
-                // 4. Offline Fallback: If network fails, load what we have saved in Room
-                if (podcastId != null) {
-                    val localPodcast = repository.getPodcastById(podcastId).firstOrNull()
-                    val localEpisodes = repository.getEpisodesByPodcastId(podcastId).firstOrNull() ?: emptyList()
+                // 4. Error Fallback: Load local DB if available
+                val targetId = podcastId ?: feedUrl
+                if (!targetId.isNullOrBlank()) {
+                    val localPodcast = repository.getPodcastByIdSnapshot(targetId)
+                    val localEpisodes = repository.getEpisodesByPodcastId(targetId).firstOrNull() ?: emptyList()
 
                     if (localPodcast != null) {
                         _state.update {
@@ -149,7 +170,7 @@ class PodcastDetailViewModel @Inject constructor(
                                 isLoading = false,
                                 podcast = localPodcast,
                                 episodes = localEpisodes,
-                                isSubscribed = true,
+                                isSubscribed = localPodcast.isSubscribed,
                                 errorMessage = "Network failed. Viewing offline saved episodes."
                             )
                         }
@@ -165,12 +186,26 @@ class PodcastDetailViewModel @Inject constructor(
         viewModelScope.launch {
             when (intent) {
                 is PodcastDetailIntent.RefreshFeed -> refreshFeed()
-                is PodcastDetailIntent.ToggleSubscription -> toggleSubscription()
+                is PodcastDetailIntent.ToggleSubscription -> {
+                    val currentPodcast = _state.value.podcast
+                    if (currentPodcast != null) {
+                        repository.toggleSubscription(currentPodcast)
+
+                        // Toggle local memory state so Compose recomposes instantly
+                        val newSubStatus = !_state.value.isSubscribed
+                        _state.update {
+                            it.copy(
+                                isSubscribed = newSubStatus,
+                                podcast = currentPodcast.copy(isSubscribed = newSubStatus)
+                            )
+                        }
+                    }
+                }
                 is PodcastDetailIntent.PlayEpisode -> {
                     repository.playEpisode(intent.episodeId)
                 }
                 is PodcastDetailIntent.EnqueueEpisode -> {
-                    repository.playEpisode(intent.episodeId)
+                    repository.enqueueEpisode(intent.episodeId)
                 }
                 is PodcastDetailIntent.DownloadEpisode -> downloadEpisode(intent.episodeId)
             }
@@ -183,59 +218,6 @@ class PodcastDetailViewModel @Inject constructor(
         loadPodcastDetails()
     }
 
-    private fun toggleSubscription() {
-        viewModelScope.launch {
-            val currentPodcast = _state.value.podcast ?: return@launch
-            val currentEpisodes = _state.value.episodes
-
-            if (_state.value.isSubscribed) {
-                // Unsubscribe: Remove from Room
-                repository.deletePodcastAndEpisodes(currentPodcast.id)
-                _state.update { it.copy(isSubscribed = false) }
-            } else {
-                // Subscribe: Save to Room
-                repository.savePodcastAndEpisodes(currentPodcast, currentEpisodes)
-                _state.update { it.copy(isSubscribed = true) }
-            }
-        }
-    }
-
-    private fun playEpisode(episodeId: String) {
-        // Find the episode they clicked on
-        val episode = _state.value.episodes.find { it.id == episodeId } ?: return
-        val podcast = _state.value.podcast
-
-        // Convert the Room Entity into an ExoPlayer MediaItem
-        val mediaItem = episode.toMediaItem(podcast)
-
-        // Send it to the background service and play immediately
-        mediaController?.setMediaItem(mediaItem)
-        mediaController?.prepare()
-        mediaController?.play()
-    }
-
-    private fun enqueueEpisode(episodeId: String) {
-        val episode = _state.value.episodes.find { it.id == episodeId } ?: return
-        val podcast = _state.value.podcast ?: return
-
-        viewModelScope.launch {
-            try {
-                // 1. Save locally so the Queue's INNER JOIN can find it
-                repository.savePodcastAndEpisodes(podcast, listOf(episode))
-                repository.enqueueEpisode(episodeId)
-
-                // 2. Add to Queue
-                val mediaItem = episode.toMediaItem(podcast)
-                mediaController?.addMediaItem(mediaItem)
-
-                // 3. Print success to Logcat!
-                android.util.Log.d("QueueDebug", "Successfully queued: ${episode.title}")
-            } catch (e: Exception) {
-                // 4. Print exact failure reason to Logcat!
-                android.util.Log.e("QueueDebug", "FAILED to queue episode", e)
-            }
-        }
-    }
     private fun downloadEpisode(episodeId: String) {
         // Architecture Next Step: Trigger WorkManager
     }
@@ -244,11 +226,5 @@ class PodcastDetailViewModel @Inject constructor(
         super.onCleared()
         // Always release the MediaController future to prevent memory leaks when navigating away
         mediaControllerFuture?.let { MediaController.releaseFuture(it) }
-    }
-
-    fun addToQueue(episodeId: String) {
-        viewModelScope.launch {
-            repository.playEpisode(episodeId)
-        }
     }
 }

@@ -1,5 +1,4 @@
 package com.codpast.player.ui.screens
-import androidx.compose.ui.res.painterResource
 import com.codpast.player.R
 
 import androidx.compose.foundation.clickable
@@ -37,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import coil.compose.rememberAsyncImagePainter
 import com.codpast.player.ui.mvi.PodcastSearchResult
 import com.codpast.player.ui.mvi.SearchIntent
 
@@ -134,8 +134,8 @@ fun SearchResultItem(
             model = podcast.artworkUrl,
             contentDescription = "Artwork for ${podcast.title}",
             contentScale = ContentScale.Crop,
-            placeholder = painterResource(id = R.drawable.ic_launcher_foreground),
-            error = painterResource(id = R.drawable.ic_launcher_foreground),
+            placeholder = rememberAsyncImagePainter(model = R.mipmap.ic_launcher),
+            error = rememberAsyncImagePainter(model = R.mipmap.ic_launcher),
             modifier = Modifier
                 .size(64.dp)
                 .clip(RoundedCornerShape(8.dp))

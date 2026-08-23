@@ -28,7 +28,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -36,6 +35,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import coil.compose.rememberAsyncImagePainter
 import com.codpast.player.data.local.entity.PodcastEntity
 import com.codpast.player.ui.mvi.SubscriptionsEffect
 import com.codpast.player.ui.mvi.SubscriptionsIntent
@@ -104,8 +104,8 @@ fun PodcastGridItem(
                 model = podcast.artworkUrl,
                 contentDescription = podcast.title,
                 contentScale = ContentScale.Crop,
-                placeholder = painterResource(id = R.drawable.ic_launcher_foreground),
-                error = painterResource(id = R.drawable.ic_launcher_foreground),
+                placeholder = rememberAsyncImagePainter(model = R.mipmap.ic_launcher),
+                error = rememberAsyncImagePainter(model = R.mipmap.ic_launcher),
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(1f)

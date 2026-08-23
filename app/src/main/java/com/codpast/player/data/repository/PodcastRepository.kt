@@ -207,4 +207,17 @@ class PodcastRepository @Inject constructor(
         }
     }
     fun getQueue(): Flow<List<QueueWithEpisode>> = podcastDao.getQueue()
+
+    suspend fun toggleSubscription(podcast: PodcastEntity) {
+        val exists = podcastDao.isPodcastSaved(podcast.id)
+        if (exists) {
+            val current = podcastDao.getPodcastById(podcast.id).firstOrNull()
+            val newStatus = !(current?.isSubscribed ?: false)
+            podcastDao.updateSubscriptionStatus(podcast.id, newStatus)
+        } else {
+            // Podcast not yet in DB (e.g. from Search) -> Save with isSubscribed = true
+            val newPodcast = podcast.copy(isSubscribed = true)
+            podcastDao.insertPodcast(newPodcast)
+        }
+    }
 }
