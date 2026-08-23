@@ -4,10 +4,8 @@ package com.codpast.player.data.repository
 import com.codpast.player.data.local.dao.PodcastDao
 import com.codpast.player.data.local.entity.EpisodeEntity
 import com.codpast.player.data.local.entity.PodcastEntity
-import com.codpast.player.data.network.PodcastIndexApi
 import com.codpast.player.data.local.entity.QueueEntity
 import com.codpast.player.data.local.entity.QueueWithEpisode
-import com.codpast.player.data.repository.PlaybackProgressManager
 import kotlinx.coroutines.flow.Flow
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -58,23 +56,8 @@ class PodcastRepository @Inject constructor(
         return podcastDao.getSubscribedPodcastsSnapshot()
     }
 
-    fun getEpisodesForPodcast(podcastId: String): Flow<List<EpisodeEntity>> {
-        return podcastDao.getEpisodesForPodcast(podcastId)
-    }
-
     suspend fun savePodcast(podcast: PodcastEntity) {
         podcastDao.insertPodcast(podcast)
-    }
-
-    suspend fun syncEpisodes(podcastId: String, feedUrl: String) {
-        val episodes = fetchEpisodes(podcastId, feedUrl)
-        if (episodes.isNotEmpty()) {
-            saveEpisodes(episodes)
-        }
-    }
-
-    suspend fun saveEpisodes(episodes: List<EpisodeEntity>) {
-        podcastDao.insertEpisodes(episodes)
     }
 
     fun getPodcastById(podcastId: String): Flow<PodcastEntity?> {
@@ -97,7 +80,7 @@ class PodcastRepository @Inject constructor(
         return podcastDao.getPodcastById(podcastId).firstOrNull()
     }
 
-    suspend fun savePodcastAndEpisodes(podcast: PodcastEntity, episodes: List<com.codpast.player.data.local.entity.EpisodeEntity>) {
+    suspend fun savePodcastAndEpisodes(podcast: PodcastEntity, episodes: List<EpisodeEntity>) {
         podcastDao.insertPodcast(podcast)
         podcastDao.insertEpisodes(episodes)
     }
@@ -121,7 +104,7 @@ class PodcastRepository @Inject constructor(
             }
         }
 
-        val queueItem = com.codpast.player.data.local.entity.QueueEntity(
+        val queueItem = QueueEntity(
             episodeId = episodeId,
             position = targetPosition
         )
@@ -196,11 +179,6 @@ class PodcastRepository @Inject constructor(
 
     suspend fun markCompletedAndRemoveFromQueue(episodeId: String) {
         podcastDao.markCompletedAndRemoveFromQueue(episodeId)
-    }
-
-    suspend fun reEnqueueEpisode(episodeId: String) {
-        val nextPos = podcastDao.getNextPosition()
-        podcastDao.reEnqueueEpisode(episodeId, nextPos)
     }
 
     suspend fun playEpisode(episodeId: String): EpisodeEntity? {
