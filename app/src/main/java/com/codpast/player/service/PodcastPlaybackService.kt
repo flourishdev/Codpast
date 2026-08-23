@@ -42,6 +42,7 @@ class PodcastPlaybackService : MediaLibraryService() {
     private var player: ExoPlayer? = null
     private var mediaLibrarySession: MediaLibrarySession? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private lateinit var playerListener: Player.Listener
 
     override fun onCreate() {
         super.onCreate()
@@ -60,7 +61,8 @@ class PodcastPlaybackService : MediaLibraryService() {
         player = exoPlayer
 
         // 2. Attach lifecycle listeners for progress persistence triggers
-        setupPlayerListeners(exoPlayer)
+        playerListener = createPlayerListener(exoPlayer)
+        exoPlayer.addListener(playerListener)
 
         // 3. Construct the MediaLibrarySession for system & Android Auto integration
         mediaLibrarySession = MediaLibrarySession.Builder(
@@ -74,8 +76,8 @@ class PodcastPlaybackService : MediaLibraryService() {
         observePlaybackManager()
     }
 
-    private fun setupPlayerListeners(exoPlayer: ExoPlayer) {
-        exoPlayer.addListener(object : Player.Listener {
+    private fun createPlayerListener(exoPlayer: ExoPlayer): Player.Listener {
+        return object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 if (!isPlaying) {
                     // Bypass 5000ms timer & flush immediately to disk when paused
@@ -97,6 +99,9 @@ class PodcastPlaybackService : MediaLibraryService() {
 
                             // 2. Figure out what to play next using wrap-around
                             val nextEpisode = repository.getNextEpisodeToPlay(currentMediaId)
+
+                            // Defensive check: Service might be destroying, or player might have been replaced/released
+                            if (!isActive || player != exoPlayer) return@launch
 
                             withContext(Dispatchers.Main) {
                                 if (nextEpisode != null) {
@@ -130,7 +135,7 @@ class PodcastPlaybackService : MediaLibraryService() {
                 // Immediate flush when switching episodes
                 progressManager.triggerImmediateFlush()
             }
-        })
+        }
     }
 
     private fun startMemoryTicker() {
@@ -158,13 +163,22 @@ class PodcastPlaybackService : MediaLibraryService() {
     }
 
     override fun onDestroy() {
+        // 1. Cancel scope to stop tickers and library observers immediately
         serviceScope.cancel()
-        // System killing service -> force synchronous DB flush and clean up resources
+
+        // 2. Clear progress management
         progressManager.onTeardown()
-        mediaLibrarySession?.release()
-        mediaLibrarySession = null
-        player?.release()
-        player = null
+
+        // 3. Robust player teardown to prevent MediaCodec dead thread issues
+        player?.let { exoPlayer ->
+            exoPlayer.stop()
+            exoPlayer.removeListener(playerListener)
+            mediaLibrarySession?.release()
+            mediaLibrarySession = null
+            exoPlayer.release()
+            player = null
+        }
+
         super.onDestroy()
     }
 
@@ -251,16 +265,16 @@ class PodcastPlaybackService : MediaLibraryService() {
                     player?.let { exoPlayer ->
                         val currentMediaId = exoPlayer.currentMediaItem?.mediaId
                         if (currentMediaId != ep.id && !ep.audioUrl.isNullOrEmpty()) {
-                            val metadata = MediaMetadata.Builder()
-                                .setTitle(ep.title)
-                                .setArtworkUri(ep.imageUrl?.takeIf { it.isNotEmpty() }?.let { Uri.parse(it) })
-                                .build()
+                            // Immediately stop playback before swapping items to prevent progress ticker race
+                            exoPlayer.stop()
 
-                            val mediaItem = MediaItem.Builder()
-                                .setMediaId(ep.id)
-                                .setUri(Uri.parse(ep.audioUrl))
-                                .setMediaMetadata(metadata)
-                                .build()
+                            // Synchronously fetch parent podcast to populate artist and artwork in MediaMetadata
+                            val podcast = repository.getPodcastByIdSnapshot(ep.podcastId)
+
+                            // Defensive check: Coroutine might have suspended, check if we should still proceed
+                            if (!isActive || player != exoPlayer) return@collect
+
+                            val mediaItem = ep.toMediaItem(podcast)
 
                             exoPlayer.setMediaItem(mediaItem)
                             exoPlayer.prepare()

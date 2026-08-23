@@ -1,6 +1,6 @@
 package com.codpast.player.util
 
-import android.net.Uri
+import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import com.codpast.player.data.local.entity.EpisodeEntity
@@ -8,23 +8,22 @@ import com.codpast.player.data.local.entity.PodcastEntity
 
 /**
  * Single source of truth helper for building a fully populated Media3 MediaItem
- * containing MediaMetadata required for Android System Notification, MiniPlayer, and ListenScreen.
+ * containing MediaMetadata required for Android System Notification, Bluetooth AVRCP, and MiniPlayer.
  */
 fun EpisodeEntity.toMediaItem(podcast: PodcastEntity? = null): MediaItem {
-    val podcastName = podcast?.title?.takeIf { it.isNotBlank() } ?: "Podcast Episode"
+    val podcastTitle = podcast?.title?.takeIf { it.isNotBlank() } ?: "Podcast Episode"
 
     val metadata = MediaMetadata.Builder()
         .setTitle(title)
-        .setArtist(podcastName)
-        .setAlbumTitle(podcastName)
-        .setArtworkUri(
-            (imageUrl ?: podcast?.artworkUrl)?.takeIf { it.isNotEmpty() }?.let { Uri.parse(it) }
-        )
+        .setArtist(podcastTitle)
+        .setAlbumTitle(podcastTitle)
+        .setArtworkUri((imageUrl ?: podcast?.artworkUrl)?.takeIf { it.isNotEmpty() }?.toUri())
+        .setIsPlayable(true)
         .build()
 
     return MediaItem.Builder()
         .setMediaId(id)
-        .setUri(Uri.parse(audioUrl))
+        .setUri(audioUrl)
         .setMediaMetadata(metadata)
         .build()
 }

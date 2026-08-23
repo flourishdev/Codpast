@@ -10,6 +10,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -41,9 +42,14 @@ class PlaybackProgressManager @Inject constructor(
     val currentEpisode: StateFlow<EpisodeEntity?> = _currentEpisode.asStateFlow()
 
     fun setCurrentEpisode(episodeId: String) {
+        // 1. Immediately claim the active episode atomically to block old ticker updates
+        activeEpisodeId.set(episodeId)
         _currentEpisodeId.value = episodeId
+
+        // 2. Fetch single-shot snapshot from DB instead of open flow collection to prevent stale overrides
         applicationScope.launch {
-            podcastDao.getEpisodeById(episodeId).collect { episode: EpisodeEntity? ->
+            val episode = podcastDao.getEpisodeById(episodeId).firstOrNull()
+            if (activeEpisodeId.get() == episodeId) {
                 _currentEpisode.value = episode
             }
         }
@@ -53,9 +59,9 @@ class PlaybackProgressManager @Inject constructor(
     fun updateProgress(episodeId: String, positionMs: Long) {
         val currentActive = activeEpisodeId.get()
 
-        // Trigger: Track change immediate flush
+        // Ignore progress updates for stale/previous episodes that are no longer active
         if (currentActive != null && currentActive != episodeId) {
-            flushImmediateSync()
+            return
         }
 
         activeEpisodeId.set(episodeId)

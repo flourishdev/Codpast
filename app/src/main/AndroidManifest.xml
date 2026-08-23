@@ -8,6 +8,9 @@
     <attribution
         android:tag="podcast_playback"
         android:label="@string/app_name" />
+    <attribution
+        android:tag="media_playback"
+        android:label="@string/app_name" />
 
     <attribution
         android:tag="default"
