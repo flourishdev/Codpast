@@ -2,6 +2,7 @@
 package com.codpast.player.data.repository
 
 import com.codpast.player.data.local.dao.PodcastDao
+import com.codpast.player.data.local.entity.EpisodeEntity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -42,7 +43,7 @@ class PlaybackProgressManager @Inject constructor(
     fun setCurrentEpisode(episodeId: String) {
         _currentEpisodeId.value = episodeId
         applicationScope.launch {
-            podcastDao.getEpisodeById(episodeId).collect { episode ->
+            podcastDao.getEpisodeById(episodeId).collect { episode: EpisodeEntity? ->
                 _currentEpisode.value = episode
             }
         }

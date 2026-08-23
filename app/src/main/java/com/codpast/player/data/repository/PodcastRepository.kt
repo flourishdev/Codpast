@@ -206,8 +206,6 @@ class PodcastRepository @Inject constructor(
             )
         }
         playbackProgressManager.setCurrentEpisode(episodeId)
-
-        // Return episode so caller can command MediaController to play
         return podcastDao.getEpisodeById(episodeId).firstOrNull()
     }
 
