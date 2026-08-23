@@ -42,12 +42,16 @@ import coil.compose.AsyncImage
 import coil.compose.rememberAsyncImagePainter
 import com.codpast.player.data.local.entity.EpisodeEntity
 import com.codpast.player.ui.mvi.PodcastDetailIntent
+import com.codpast.player.data.local.entity.DownloadEntity
+import com.codpast.player.data.local.entity.DownloadStatus
 import android.text.format.DateUtils
 import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.DownloadDone
 
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -130,9 +134,11 @@ fun PodcastDetailScreen(
 
                         // Episode List
                         items(state.episodes) { episode ->
+                            val download = state.downloadsMap[episode.id]
                             EpisodeRowItem(
                                 episode = episode,
-                                isQueued = state.queuedEpisodeIds.contains(episode.id), // <-- PASS THIS DOWN
+                                isQueued = state.queuedEpisodeIds.contains(episode.id),
+                                download = download,
                                 onClick = { onNavigateToEpisode(episode.id, state.podcast?.feedUrl) },
                                 onPlay = { viewModel.onIntent(PodcastDetailIntent.PlayEpisode(episode.id)) },
                                 onEnqueue = { viewModel.onIntent(PodcastDetailIntent.EnqueueEpisode(episode.id)) },
@@ -150,6 +156,7 @@ fun PodcastDetailScreen(
 fun EpisodeRowItem(
     episode: EpisodeEntity,
     isQueued: Boolean,
+    download: DownloadEntity?,
     onClick: () -> Unit,
     onPlay: () -> Unit,
     onEnqueue: () -> Unit,
@@ -190,16 +197,46 @@ fun EpisodeRowItem(
             }
             Row {
                 IconButton(onClick = onEnqueue) {
-                    // SWAP ICON BASED ON isQueued STATE
                     Icon(
                         imageVector = if (isQueued) Icons.Default.Check else Icons.Default.Add,
                         contentDescription = if (isQueued) "In Queue" else "Enqueue",
                         tint = if (isQueued) MaterialTheme.colorScheme.primary else LocalContentColor.current
                     )
                 }
-                IconButton(onClick = onDownload) {
-                    // Note: You might want to change this to a Download icon later to avoid confusion with the Queue checkmark!
-                    Icon(Icons.Default.Check, contentDescription = "Download")
+
+                // Dynamic Download State Icon
+                when (download?.status) {
+                    DownloadStatus.DOWNLOADING -> {
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .padding(12.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(
+                                progress = { (download.progress / 100f).coerceIn(0f, 1f) },
+                                modifier = Modifier.fillMaxSize(),
+                                strokeWidth = 2.dp
+                            )
+                        }
+                    }
+                    DownloadStatus.COMPLETED -> {
+                        IconButton(onClick = onDownload) {
+                            Icon(
+                                imageVector = Icons.Default.DownloadDone,
+                                contentDescription = "Delete Download",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                    else -> {
+                        IconButton(onClick = onDownload) {
+                            Icon(
+                                imageVector = Icons.Default.Download,
+                                contentDescription = "Download Episode"
+                            )
+                        }
+                    }
                 }
             }
         }

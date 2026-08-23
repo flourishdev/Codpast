@@ -29,6 +29,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
+import java.io.File
 
 @AndroidEntryPoint
 class PodcastPlaybackService : MediaLibraryService() {
@@ -268,13 +269,28 @@ class PodcastPlaybackService : MediaLibraryService() {
                             // Immediately stop playback before swapping items to prevent progress ticker race
                             exoPlayer.stop()
 
+                            // Check if episode is downloaded locally on disk
+                            val download = repository.getDownloadForEpisodeSnapshot(ep.id)
+                            val finalAudioUrl = if (download?.status == com.codpast.player.data.local.entity.DownloadStatus.COMPLETED) {
+                                val localFile = File(download.localPath)
+                                if (localFile.exists() && localFile.length() > 0) {
+                                    Uri.fromFile(localFile).toString()
+                                } else {
+                                    ep.audioUrl
+                                }
+                            } else {
+                                ep.audioUrl
+                            }
+
+                            val playableEpisode = ep.copy(audioUrl = finalAudioUrl)
+
                             // Synchronously fetch parent podcast to populate artist and artwork in MediaMetadata
                             val podcast = repository.getPodcastByIdSnapshot(ep.podcastId)
 
                             // Defensive check: Coroutine might have suspended, check if we should still proceed
                             if (!isActive || player != exoPlayer) return@collect
 
-                            val mediaItem = ep.toMediaItem(podcast)
+                            val mediaItem = playableEpisode.toMediaItem(podcast)
 
                             exoPlayer.setMediaItem(mediaItem)
                             exoPlayer.prepare()

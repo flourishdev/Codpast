@@ -49,8 +49,17 @@ class PodcastDetailViewModel @Inject constructor(
         initializeController()
         observeQueueState()
         observeSubscriptionStatus()
+        observeDownloads()
     }
 
+    private fun observeDownloads() {
+        viewModelScope.launch {
+            repository.getAllDownloads().collect { downloads ->
+                val downloadMap = downloads.associateBy { it.episodeId }
+                _state.update { it.copy(downloadsMap = downloadMap) }
+            }
+        }
+    }
     private fun observeSubscriptionStatus() {
         val targetId = podcastId ?: feedUrl
         if (!targetId.isNullOrBlank()) {
@@ -207,7 +216,17 @@ class PodcastDetailViewModel @Inject constructor(
                 is PodcastDetailIntent.EnqueueEpisode -> {
                     repository.enqueueEpisode(intent.episodeId)
                 }
-                is PodcastDetailIntent.DownloadEpisode -> downloadEpisode(intent.episodeId)
+                is PodcastDetailIntent.DownloadEpisode -> {
+                    val episode = _state.value.episodes.find { it.id == intent.episodeId }
+                    if (episode != null) {
+                        val currentDownload = _state.value.downloadsMap[intent.episodeId]
+                        if (currentDownload?.status == com.codpast.player.data.local.entity.DownloadStatus.COMPLETED) {
+                            repository.deleteDownload(intent.episodeId)
+                        } else if (currentDownload?.status != com.codpast.player.data.local.entity.DownloadStatus.DOWNLOADING) {
+                            repository.downloadEpisode(episode)
+                        }
+                    }
+                }
             }
         }
     }

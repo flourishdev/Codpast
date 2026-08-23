@@ -14,6 +14,17 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import kotlin.collections.mapNotNull
 import kotlinx.coroutines.flow.firstOrNull
+import android.content.Context
+import androidx.work.Constraints
+import androidx.work.Data
+import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
+import com.codpast.player.data.local.entity.DownloadEntity
+import com.codpast.player.service.EpisodeDownloadWorker
+import dagger.hilt.android.qualifiers.ApplicationContext
+import java.io.File
+import android.net.Uri
 
 enum class PositionMode {
     APPEND,
@@ -23,7 +34,8 @@ enum class PositionMode {
 @Singleton
 class PodcastRepository @Inject constructor(
     private val podcastDao: PodcastDao,
-    private val playbackProgressManager: PlaybackProgressManager
+    private val playbackProgressManager: PlaybackProgressManager,
+    @ApplicationContext private val context: Context
 ) {
     // Initialize the RSS Parser
     private val rssParser = RssParserBuilder().build()
@@ -191,8 +203,22 @@ class PodcastRepository @Inject constructor(
                 )
             )
         }
+
+        var episode = podcastDao.getEpisodeById(episodeId).firstOrNull()
+
+        // Resolving Local Offline Audio File if Downloaded
+        val download = podcastDao.getDownloadForEpisodeSnapshot(episodeId)
+        if (episode != null && download?.status == com.codpast.player.data.local.entity.DownloadStatus.COMPLETED) {
+            val localFile = File(download.localPath)
+            if (localFile.exists() && localFile.length() > 0) {
+                // Convert raw file path to proper file:// URI scheme for ExoPlayer
+                val fileUri = Uri.fromFile(localFile).toString()
+                episode = episode.copy(audioUrl = fileUri)
+            }
+        }
+
         playbackProgressManager.setCurrentEpisode(episodeId)
-        return podcastDao.getEpisodeById(episodeId).firstOrNull()
+        return episode
     }
 
     suspend fun reorderQueue(fromIndex: Int, toIndex: Int) {
@@ -219,5 +245,45 @@ class PodcastRepository @Inject constructor(
             val newPodcast = podcast.copy(isSubscribed = true)
             podcastDao.insertPodcast(newPodcast)
         }
+    }
+
+    fun getDownloadForEpisode(episodeId: String): Flow<DownloadEntity?> {
+        return podcastDao.getDownloadForEpisode(episodeId)
+    }
+
+    fun getAllDownloads(): Flow<List<DownloadEntity>> {
+        return podcastDao.getAllDownloads()
+    }
+
+    suspend fun downloadEpisode(episode: EpisodeEntity) {
+        val inputData = Data.Builder()
+            .putString(EpisodeDownloadWorker.KEY_EPISODE_ID, episode.id)
+            .putString(EpisodeDownloadWorker.KEY_PODCAST_ID, episode.podcastId)
+            .putString(EpisodeDownloadWorker.KEY_AUDIO_URL, episode.audioUrl)
+            .build()
+
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build()
+
+        val downloadWorkRequest = OneTimeWorkRequestBuilder<EpisodeDownloadWorker>()
+            .setInputData(inputData)
+            .setConstraints(constraints)
+            .build()
+
+        WorkManager.getInstance(context).enqueue(downloadWorkRequest)
+    }
+
+    suspend fun deleteDownload(episodeId: String) {
+        val download = podcastDao.getDownloadForEpisodeSnapshot(episodeId)
+        if (download != null) {
+            val file = File(download.localPath)
+            if (file.exists()) file.delete()
+            podcastDao.deleteDownload(episodeId)
+        }
+    }
+
+    suspend fun getDownloadForEpisodeSnapshot(episodeId: String): DownloadEntity? {
+        return podcastDao.getDownloadForEpisodeSnapshot(episodeId)
     }
 }

@@ -1,5 +1,6 @@
 package com.codpast.player.ui.mvi
 
+import com.codpast.player.data.local.entity.DownloadEntity
 import com.codpast.player.data.local.entity.EpisodeEntity
 import com.codpast.player.data.local.entity.PodcastEntity
 
@@ -9,7 +10,8 @@ data class PodcastDetailUiState(
     val podcast: PodcastEntity? = null,
     val episodes: List<EpisodeEntity> = emptyList(),
     val isSubscribed: Boolean = false,
-    val queuedEpisodeIds: Set<String> = emptySet(), // <-- ADD THIS LINE
+    val queuedEpisodeIds: Set<String> = emptySet(),
+    val downloadsMap: Map<String, DownloadEntity> = emptyMap(),
     val errorMessage: String? = null
 ) : UiState
 

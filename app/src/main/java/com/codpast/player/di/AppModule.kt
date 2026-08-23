@@ -13,6 +13,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import javax.inject.Singleton
+import android.content.Context
+import dagger.hilt.android.qualifiers.ApplicationContext
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -29,8 +31,13 @@ object AppModule {
     @Singleton
     fun providePodcastRepository(
         podcastDao: PodcastDao,
-        playbackProgressManager: PlaybackProgressManager
+        playbackProgressManager: PlaybackProgressManager,
+        @ApplicationContext context: Context
     ): PodcastRepository {
-        return PodcastRepository(podcastDao, playbackProgressManager)
+        return PodcastRepository(
+            podcastDao = podcastDao,
+            playbackProgressManager = playbackProgressManager,
+            context = context
+        )
     }
 }

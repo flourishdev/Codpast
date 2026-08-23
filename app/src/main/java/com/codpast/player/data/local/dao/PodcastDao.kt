@@ -10,6 +10,7 @@ import com.codpast.player.data.local.entity.EpisodeEntity
 import com.codpast.player.data.local.entity.PodcastEntity
 import com.codpast.player.data.local.entity.QueueEntity
 import com.codpast.player.data.local.entity.QueueWithEpisode
+import com.codpast.player.data.local.entity.DownloadEntity
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -128,4 +129,21 @@ interface PodcastDao {
     @Transaction
     @Query("SELECT * FROM queue ORDER BY position ASC")
     fun getQueue(): Flow<List<QueueWithEpisode>>
+
+    // --- Download Management ---
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertOrUpdateDownload(download: DownloadEntity)
+
+    @Query("SELECT * FROM downloads WHERE episodeId = :episodeId")
+    fun getDownloadForEpisode(episodeId: String): Flow<DownloadEntity?>
+
+    @Query("SELECT * FROM downloads WHERE episodeId = :episodeId")
+    suspend fun getDownloadForEpisodeSnapshot(episodeId: String): DownloadEntity?
+
+    @Query("SELECT * FROM downloads")
+    fun getAllDownloads(): Flow<List<DownloadEntity>>
+
+    @Query("DELETE FROM downloads WHERE episodeId = :episodeId")
+    suspend fun deleteDownload(episodeId: String)
 }

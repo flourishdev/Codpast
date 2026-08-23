@@ -108,4 +108,9 @@ dependencies {
     implementation(libs.androidx.material.icons.extended)
 
     implementation("com.google.guava:guava:33.7.0-android")
+
+    // WorkManager & Hilt Work Integration
+    implementation(libs.androidx.work.runtime.ktx)
+    implementation(libs.androidx.hilt.work)
+    ksp(libs.androidx.hilt.compiler)
 }
