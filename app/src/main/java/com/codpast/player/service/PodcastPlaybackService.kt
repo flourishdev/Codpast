@@ -159,8 +159,16 @@ class PodcastPlaybackService : MediaLibraryService() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
-        // User swiped app away from recent tasks -> force synchronous DB flush
-        progressManager.onTeardown()
+
+        // Completely stop audio playback and release player resources when app is swiped away
+        player?.let { exoPlayer ->
+            exoPlayer.stop()
+            exoPlayer.clearMediaItems()
+        }
+
+        // Stop the foreground service and remove notification
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
     }
 
     override fun onDestroy() {
@@ -293,6 +301,12 @@ class PodcastPlaybackService : MediaLibraryService() {
                             val mediaItem = playableEpisode.toMediaItem(podcast)
 
                             exoPlayer.setMediaItem(mediaItem)
+
+                            // Seek to saved position from Room SSOT before preparing/playing
+                            if (ep.playbackPosition > 0L) {
+                                exoPlayer.seekTo(ep.playbackPosition)
+                            }
+
                             exoPlayer.prepare()
                             exoPlayer.play()
                         }
