@@ -44,8 +44,6 @@ interface PodcastDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertEpisodes(episodes: List<EpisodeEntity>)
 
-    @Query("SELECT * FROM episodes WHERE podcastId = :podcastId ORDER BY publishedAt DESC")
-    fun getEpisodesForPodcast(podcastId: String): Flow<List<EpisodeEntity>>
 
     @Query("SELECT * FROM episodes WHERE id = :episodeId")
     fun getEpisodeById(episodeId: String): Flow<EpisodeEntity?>
@@ -111,13 +109,6 @@ interface PodcastDao {
         updateEpisodeCompletion(episodeId, isCompleted = true, position = 0L)
         deleteQueueItem(episodeId)
     }
-
-    @Transaction
-    suspend fun reEnqueueEpisode(episodeId: String, nextPosition: Int) {
-        updateEpisodeCompletion(episodeId, isCompleted = false, position = 0L)
-        insertQueueItem(QueueEntity(episodeId, nextPosition))
-    }
-
     @Transaction
     @Query("SELECT * FROM queue ORDER BY position ASC")
     suspend fun getQueueSnapshotWithEpisodes(): List<QueueWithEpisode>
@@ -146,4 +137,8 @@ interface PodcastDao {
 
     @Query("DELETE FROM downloads WHERE episodeId = :episodeId")
     suspend fun deleteDownload(episodeId: String)
+
+    @Transaction
+    @Query("SELECT * FROM queue ORDER BY position ASC LIMIT 1")
+    suspend fun getFirstQueueItemSnapshot(): QueueWithEpisode?
 }

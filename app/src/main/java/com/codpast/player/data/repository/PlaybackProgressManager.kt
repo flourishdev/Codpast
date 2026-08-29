@@ -41,6 +41,21 @@ class PlaybackProgressManager @Inject constructor(
     private val _currentEpisode = MutableStateFlow<EpisodeEntity?>(null)
     val currentEpisode: StateFlow<EpisodeEntity?> = _currentEpisode.asStateFlow()
 
+    init {
+        // Cold-start restoration: Load last active episode from Room SSOT on startup
+        applicationScope.launch(Dispatchers.IO) {
+            val firstQueueItem = podcastDao.getFirstQueueItemSnapshot()
+            val restoredEpisode = firstQueueItem?.episode
+            if (restoredEpisode != null) {
+                activeEpisodeId.set(restoredEpisode.id)
+                memoryPosition.set(restoredEpisode.playbackPosition)
+                _uiPosition.value = restoredEpisode.playbackPosition
+                _currentEpisodeId.value = restoredEpisode.id
+                _currentEpisode.value = restoredEpisode
+            }
+        }
+    }
+
     fun setCurrentEpisode(episodeId: String) {
         // 1. Immediately claim the active episode atomically to block old ticker updates
         activeEpisodeId.set(episodeId)

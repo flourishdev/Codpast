@@ -267,6 +267,8 @@ class PodcastPlaybackService : MediaLibraryService() {
         }
     }
 
+    private var isInitialColdStart = true
+
     private fun observePlaybackManager() {
         serviceScope.launch {
             progressManager.currentEpisode.collect { episode: EpisodeEntity? ->
@@ -302,13 +304,20 @@ class PodcastPlaybackService : MediaLibraryService() {
 
                             exoPlayer.setMediaItem(mediaItem)
 
-                            // Seek to saved position from Room SSOT before preparing/playing
+                            // Seek to saved position from Room SSOT
                             if (ep.playbackPosition > 0L) {
                                 exoPlayer.seekTo(ep.playbackPosition)
                             }
 
                             exoPlayer.prepare()
-                            exoPlayer.play()
+
+                            // Auto-play on user action; stay paused on initial cold start restoration
+                            if (isInitialColdStart) {
+                                isInitialColdStart = false
+                                exoPlayer.playWhenReady = false
+                            } else {
+                                exoPlayer.play()
+                            }
                         }
                     }
                 }
