@@ -108,24 +108,19 @@ class PodcastRepository @Inject constructor(
         mode: PositionMode = PositionMode.APPEND,
         currentPlayingIndex: Int = -1
     ) {
-        val targetPosition = when (mode) {
-            PositionMode.APPEND -> podcastDao.getNextPosition()
+        when (mode) {
+            PositionMode.APPEND -> {
+                val nextPos = podcastDao.getNextPosition()
+                podcastDao.insertQueueItem(QueueEntity(episodeId, nextPos))
+            }
             PositionMode.PLAY_NEXT -> {
                 val insertPos = currentPlayingIndex + 1
-                podcastDao.shiftPositionsUp(insertPos)
-                insertPos
+                podcastDao.insertQueueItemAtPosition(episodeId, insertPos)
             }
         }
-
-        val queueItem = QueueEntity(
-            episodeId = episodeId,
-            position = targetPosition
-        )
-        podcastDao.insertQueueItem(queueItem)
     }
 
-    suspend fun removeFromQueue(episodeId: String) = podcastDao.deleteQueueItem(episodeId)
-
+    suspend fun removeFromQueue(episodeId: String) = podcastDao.removeAndShiftQueue(episodeId)
     suspend fun clearQueue() = podcastDao.clearQueue()
 
     fun getQueueEpisodes(): Flow<List<EpisodeEntity>> {
@@ -262,7 +257,7 @@ class PodcastRepository @Inject constructor(
         }
         val targetFile = File(downloadsDir, "${episode.id.hashCode()}.mp3")
 
-        // 1. Immediately insert DOWNLOADING record into Room SQLite SSOT so UI updates instantly
+        // 1. INSTANT ROOM WRITE: Mark as DOWNLOADING in Room SQLite SSOT immediately
         val initialDownloadRecord = DownloadEntity(
             episodeId = episode.id,
             podcastId = episode.podcastId,

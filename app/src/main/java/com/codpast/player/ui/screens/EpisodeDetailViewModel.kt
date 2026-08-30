@@ -23,13 +23,23 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import android.content.ComponentName
+import android.content.Context
+import androidx.core.content.ContextCompat
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
+import com.codpast.player.service.PodcastPlaybackService
+import com.google.common.util.concurrent.ListenableFuture
+import dagger.hilt.android.qualifiers.ApplicationContext
+import com.codpast.player.util.toMediaItem
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class EpisodeDetailViewModel @Inject constructor(
     private val repository: PodcastRepository,
     private val progressManager: PlaybackProgressManager,
-    savedStateHandle: SavedStateHandle
+    savedStateHandle: SavedStateHandle,
+    @param:ApplicationContext private val context: Context
 ) : ViewModel() {
 
     private val episodeId: String = checkNotNull(savedStateHandle["episodeId"])
@@ -56,6 +66,10 @@ class EpisodeDetailViewModel @Inject constructor(
             else -> UiDownloadStatus.NOT_DOWNLOADED
         }
     }
+
+    // MediaController connection to PodcastPlaybackService
+    private var controllerFuture: ListenableFuture<MediaController>? = null
+    private var mediaController: MediaController? = null
 
     // Group streams to stay under the limit
     private val dbData = combine(dbEpisodeFlow, dbPodcastFlow) { ep, pod -> Pair(ep, pod) }
@@ -90,6 +104,7 @@ class EpisodeDetailViewModel @Inject constructor(
     )
 
     init {
+        initializeMediaController()
         // If we have a feedUrl, fetch the preview!
         if (feedUrl != null) {
             viewModelScope.launch {
@@ -107,12 +122,41 @@ class EpisodeDetailViewModel @Inject constructor(
         }
     }
 
+    private fun initializeMediaController() {
+        val sessionToken = SessionToken(context, ComponentName(context, PodcastPlaybackService::class.java))
+        controllerFuture = MediaController.Builder(context, sessionToken).buildAsync()
+        controllerFuture?.addListener({
+            try {
+                mediaController = controllerFuture?.get()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }, ContextCompat.getMainExecutor(context))
+    }
+
     fun onIntent(intent: EpisodeDetailIntent) {
         when (intent) {
             is EpisodeDetailIntent.TogglePlayPause -> {
-                _isPlaying.value = !_isPlaying.value
+                val controller = mediaController ?: return
+                val currentEp = state.value.episode ?: return
+                val currentPod = state.value.podcast
+
+                if (controller.currentMediaItem?.mediaId == currentEp.id) {
+                    if (controller.isPlaying) controller.pause() else controller.play()
+                } else {
+                    viewModelScope.launch {
+                        if (currentPod != null) {
+                            repository.savePodcastAndEpisodes(currentPod, listOf(currentEp))
+                        }
+                        repository.enqueueEpisode(currentEp.id)
+                        controller.setMediaItem(currentEp.toMediaItem(currentPod))
+                        controller.prepare()
+                        controller.play()
+                    }
+                }
             }
             is EpisodeDetailIntent.SeekTo -> {
+                mediaController?.seekTo(intent.positionMs)
                 progressManager.updateProgress(episodeId, intent.positionMs)
             }
             is EpisodeDetailIntent.Enqueue -> {
@@ -153,5 +197,9 @@ class EpisodeDetailViewModel @Inject constructor(
                 }
             }
         }
+    }
+    override fun onCleared() {
+        super.onCleared()
+        controllerFuture?.let { MediaController.releaseFuture(it) }
     }
 }

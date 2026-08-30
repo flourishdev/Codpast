@@ -163,7 +163,8 @@ fun EpisodeRowItem(
     onDownload: () -> Unit
 ) {
     Column(
-        modifier = Modifier.fillMaxWidth().clickable { onClick() }.padding(horizontal = 16.dp, vertical = 12.dp)
+        modifier = Modifier.fillMaxWidth().clickable { onClick() }
+            .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
         // 1. Format your Long timestamp into a readable date string
         val dateString = DateUtils.getRelativeTimeSpanString(episode.publishedAt).toString()
@@ -204,38 +205,31 @@ fun EpisodeRowItem(
                     )
                 }
 
-                // Dynamic Download State Icon
-                when (download?.status) {
-                    DownloadStatus.DOWNLOADING -> {
-                        Box(
-                            modifier = Modifier
-                                .size(48.dp)
-                                .padding(12.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.fillMaxSize(),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-                    DownloadStatus.COMPLETED -> {
-                        IconButton(onClick = onDownload) {
-                            Icon(
-                                imageVector = Icons.Default.DownloadDone,
-                                contentDescription = "Delete Download",
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-                    else -> {
-                        IconButton(onClick = onDownload) {
-                            Icon(
-                                imageVector = Icons.Default.Download,
-                                contentDescription = "Download Episode"
-                            )
-                        }
+                // Guaranteed Determinate Progress Circle
+                val isDownloading = download?.status == DownloadStatus.DOWNLOADING
+                val isDownloaded = download?.status == DownloadStatus.COMPLETED
+                val downloadProgress = ((download?.progress ?: 0) / 100f).coerceIn(0f, 1f)
+
+                IconButton(onClick = onDownload) {
+                    if (isDownloading) {
+                        CircularProgressIndicator(
+                            progress = { downloadProgress },
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.5.dp,
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = MaterialTheme.colorScheme.surfaceVariant
+                        )
+                    } else if (isDownloaded) {
+                        Icon(
+                            imageVector = Icons.Default.DownloadDone,
+                            contentDescription = "Downloaded",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.Download,
+                            contentDescription = "Download"
+                        )
                     }
                 }
             }

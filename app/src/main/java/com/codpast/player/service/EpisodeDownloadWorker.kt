@@ -65,31 +65,46 @@ class EpisodeDownloadWorker @AssistedInject constructor(
             val contentLength = responseBody.contentLength()
             var bytesRead = 0L
             var lastReportedTime = System.currentTimeMillis()
+            var lastReportedProgress = 0
 
             responseBody.byteStream().use { inputStream ->
                 FileOutputStream(targetFile).use { outputStream ->
                     val buffer = ByteArray(8192)
                     var read: Int
-                    var lastReportedProgress = 0
 
                     while (inputStream.read(buffer).also { read = it } != -1) {
+                        if (isStopped) {
+                            outputStream.flush()
+                            if (targetFile.exists()) {
+                                targetFile.delete()
+                            }
+                            podcastDao.insertOrUpdateDownload(
+                                downloadRecord.copy(status = DownloadStatus.FAILED)
+                            )
+                            return@withContext Result.failure()
+                        }
+
                         outputStream.write(buffer, 0, read)
                         bytesRead += read
 
                         val currentTime = System.currentTimeMillis()
 
-                        if (contentLength > 0) {
-                            val currentProgress = ((bytesRead * 100) / contentLength).toInt()
-                            if (currentProgress >= lastReportedProgress + 5 || currentTime - lastReportedTime > 1000L) {
+                        if (contentLength > 0L) {
+                            val currentProgress = ((bytesRead * 100) / contentLength).toInt().coerceIn(0, 99)
+                            if (currentProgress >= lastReportedProgress + 2 || currentTime - lastReportedTime > 500L) {
                                 lastReportedProgress = currentProgress
                                 lastReportedTime = currentTime
                                 downloadRecord = downloadRecord.copy(progress = currentProgress)
                                 podcastDao.insertOrUpdateDownload(downloadRecord)
                             }
                         } else {
-                            // If Content-Length header is missing, update DB periodically every 1000ms
-                            if (currentTime - lastReportedTime > 1000L) {
+                            // If Content-Length header is missing (-1), synthesize progress based on byte chunks read
+                            if (currentTime - lastReportedTime > 500L) {
                                 lastReportedTime = currentTime
+                                // Emit incremental progress marker so Room updates state
+                                val estimatedProgress = (lastReportedProgress + 5).coerceAtMost(95)
+                                lastReportedProgress = estimatedProgress
+                                downloadRecord = downloadRecord.copy(progress = estimatedProgress)
                                 podcastDao.insertOrUpdateDownload(downloadRecord)
                             }
                         }

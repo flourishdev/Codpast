@@ -121,6 +121,27 @@ interface PodcastDao {
     @Query("SELECT * FROM queue ORDER BY position ASC")
     fun getQueue(): Flow<List<QueueWithEpisode>>
 
+    // --- Queue Management Queries & Transaction Helpers ---
+
+    @Query("SELECT position FROM queue WHERE episodeId = :episodeId")
+    suspend fun getQueuePosition(episodeId: String): Int?
+
+    @Query("UPDATE queue SET position = position - 1 WHERE position > :fromPosition")
+    suspend fun shiftPositionsDown(fromPosition: Int)
+
+    @Transaction
+    suspend fun removeAndShiftQueue(episodeId: String) {
+        val pos = getQueuePosition(episodeId) ?: return
+        deleteQueueItem(episodeId)
+        shiftPositionsDown(pos)
+    }
+
+    @Transaction
+    suspend fun insertQueueItemAtPosition(episodeId: String, position: Int) {
+        shiftPositionsUp(position)
+        insertQueueItem(QueueEntity(episodeId, position))
+    }
+
     // --- Download Management ---
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)

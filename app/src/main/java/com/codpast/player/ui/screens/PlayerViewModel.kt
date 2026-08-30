@@ -20,6 +20,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -40,6 +43,25 @@ class PlayerViewModel @Inject constructor(
     init {
         initializeController()
         startProgressTracker()
+        observeQueue()
+    }
+
+    private fun observeQueue() {
+        viewModelScope.launch {
+            combine(
+                repository.getQueueEpisodes(),
+                _state.map { it.currentEpisode?.id }.distinctUntilChanged()
+            ) { queue, currentId ->
+                if (currentId != null) {
+                    val currentIndex = queue.indexOfFirst { it.id == currentId }
+                    currentIndex != -1 && currentIndex < queue.size - 1
+                } else {
+                    queue.isNotEmpty()
+                }
+            }.collect { hasNext ->
+                _state.update { it.copy(hasNextEpisode = hasNext) }
+            }
+        }
     }
 
     private fun initializeController() {
@@ -67,8 +89,7 @@ class PlayerViewModel @Inject constructor(
             override fun onEvents(player: Player, events: Player.Events) {
                 _state.update {
                     it.copy(
-                        isPlaying = player.isPlaying,
-                        hasNextEpisode = player.hasNextMediaItem() // Flips boolean to unlock Next button
+                        isPlaying = player.isPlaying
                     )
                 }
             }
@@ -201,6 +222,14 @@ class PlayerViewModel @Inject constructor(
             is PlayerIntent.SkipToNext -> {
                 if (mediaController?.hasNextMediaItem() == true) {
                     mediaController?.seekToNextMediaItem()
+                } else {
+                    viewModelScope.launch {
+                        val currentId = _state.value.currentEpisode?.id
+                        val nextEpisode = repository.getNextEpisodeToPlay(currentId)
+                        if (nextEpisode != null) {
+                            repository.playEpisode(nextEpisode.id)
+                        }
+                    }
                 }
             }
         }
