@@ -1,5 +1,4 @@
 package com.codpast.player.ui.screens
-import com.codpast.player.data.local.entity.DownloadStatus as DbDownloadStatus
 
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -8,7 +7,8 @@ import com.codpast.player.data.local.entity.EpisodeEntity
 import com.codpast.player.data.local.entity.PodcastEntity
 import com.codpast.player.data.repository.PlaybackProgressManager
 import com.codpast.player.data.repository.PodcastRepository
-import com.codpast.player.ui.mvi.DownloadStatus
+import com.codpast.player.ui.mvi.DownloadStatus as UiDownloadStatus
+import com.codpast.player.data.local.entity.DownloadStatus as DbDownloadStatus
 import com.codpast.player.ui.mvi.EpisodeDetailIntent
 import com.codpast.player.ui.mvi.EpisodeDetailUiState
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -35,35 +35,32 @@ class EpisodeDetailViewModel @Inject constructor(
     private val episodeId: String = checkNotNull(savedStateHandle["episodeId"])
     private val feedUrl: String? = savedStateHandle["feedUrl"]
 
+    private val _isPlaying = MutableStateFlow(false)
     private val _errorMessage = MutableStateFlow<String?>(null)
 
-    // Caches for previewing unsubscribed episodes/podcasts from RSS
+    // Memory caches for unsubscribed previews
     private val previewEpisode = MutableStateFlow<EpisodeEntity?>(null)
     private val previewPodcast = MutableStateFlow<PodcastEntity?>(null)
 
-    // Reactive DB streams
+    // Room DB streams for subscribed data
     private val dbEpisodeFlow = repository.getEpisodeById(episodeId)
     private val dbPodcastFlow = dbEpisodeFlow.flatMapLatest { episode ->
         if (episode != null) repository.getPodcastById(episode.podcastId) else flowOf(null)
     }
 
-    // Reactive playback and download state streams
-    private val isPlayingFlow = progressManager.currentEpisodeId.map { activeId ->
-        activeId == episodeId
-    }
-
+    // REAL-TIME ROOM DOWNLOAD FLOW COLLECTION
     private val downloadStatusFlow = repository.getDownloadForEpisode(episodeId).map { download ->
         when (download?.status) {
-            DbDownloadStatus.DOWNLOADING -> DownloadStatus.DOWNLOADING
-            DbDownloadStatus.COMPLETED -> DownloadStatus.DOWNLOADED
-            else -> DownloadStatus.NOT_DOWNLOADED
+            DbDownloadStatus.DOWNLOADING -> UiDownloadStatus.DOWNLOADING
+            DbDownloadStatus.COMPLETED -> UiDownloadStatus.DOWNLOADED
+            else -> UiDownloadStatus.NOT_DOWNLOADED
         }
     }
 
-    // Group flows to satisfy combine parameter limits
+    // Group streams to stay under the limit
     private val dbData = combine(dbEpisodeFlow, dbPodcastFlow) { ep, pod -> Pair(ep, pod) }
     private val preData = combine(previewEpisode, previewPodcast) { ep, pod -> Pair(ep, pod) }
-    private val uiData = combine(isPlayingFlow, downloadStatusFlow, _errorMessage) { isPlaying, status, error ->
+    private val uiData = combine(_isPlaying, downloadStatusFlow, _errorMessage) { isPlaying, status, error ->
         Triple(isPlaying, status, error)
     }
 
@@ -82,7 +79,7 @@ class EpisodeDetailViewModel @Inject constructor(
             episode = currentEpisode,
             podcast = currentPodcast,
             isPlaying = ui.first,
-            playbackPositionMs = if (ui.first) position else (currentEpisode?.playbackPosition ?: 0L),
+            playbackPositionMs = position,
             downloadStatus = ui.second,
             errorMessage = ui.third
         )
@@ -93,6 +90,7 @@ class EpisodeDetailViewModel @Inject constructor(
     )
 
     init {
+        // If we have a feedUrl, fetch the preview!
         if (feedUrl != null) {
             viewModelScope.launch {
                 try {
@@ -112,19 +110,7 @@ class EpisodeDetailViewModel @Inject constructor(
     fun onIntent(intent: EpisodeDetailIntent) {
         when (intent) {
             is EpisodeDetailIntent.TogglePlayPause -> {
-                val currentEpisode = state.value.episode ?: return
-                val currentPodcast = state.value.podcast ?: return
-
-                viewModelScope.launch {
-                    try {
-                        // Persist to Room SQLite first so SSOT contains episode and podcast entities
-                        repository.savePodcastAndEpisodes(currentPodcast, listOf(currentEpisode))
-                        // Triggers queue insertion and notifies PlaybackProgressManager / PodcastPlaybackService
-                        repository.playEpisode(currentEpisode.id)
-                    } catch (e: Exception) {
-                        _errorMessage.value = "Failed to play episode."
-                    }
-                }
+                _isPlaying.value = !_isPlaying.value
             }
             is EpisodeDetailIntent.SeekTo -> {
                 progressManager.updateProgress(episodeId, intent.positionMs)
@@ -148,7 +134,9 @@ class EpisodeDetailViewModel @Inject constructor(
 
                 viewModelScope.launch {
                     try {
+                        // Persist offline first so Room entity references are valid
                         repository.savePodcastAndEpisodes(currentPodcast, listOf(currentEpisode))
+                        // Dispatch WorkManager download worker
                         repository.downloadEpisode(currentEpisode)
                     } catch (e: Exception) {
                         _errorMessage.value = "Failed to start download."

@@ -23,6 +23,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import kotlinx.coroutines.flow.firstOrNull
+import com.codpast.player.data.local.entity.DownloadStatus as DbDownloadStatus
+
 
 @HiltViewModel
 class PodcastDetailViewModel @Inject constructor(
@@ -218,11 +220,15 @@ class PodcastDetailViewModel @Inject constructor(
                 }
                 is PodcastDetailIntent.DownloadEpisode -> {
                     val episode = _state.value.episodes.find { it.id == intent.episodeId }
-                    if (episode != null) {
+                    val podcast = _state.value.podcast
+                    if (episode != null && podcast != null) {
                         val currentDownload = _state.value.downloadsMap[intent.episodeId]
-                        if (currentDownload?.status == com.codpast.player.data.local.entity.DownloadStatus.COMPLETED) {
+                        if (currentDownload?.status == DbDownloadStatus.COMPLETED) {
                             repository.deleteDownload(intent.episodeId)
-                        } else if (currentDownload?.status != com.codpast.player.data.local.entity.DownloadStatus.DOWNLOADING) {
+                        } else if (currentDownload?.status != DbDownloadStatus.DOWNLOADING) {
+                            // Save offline first to satisfy SSOT entity references
+                            repository.savePodcastAndEpisodes(podcast, listOf(episode))
+                            // Dispatch immediate download write + WorkManager
                             repository.downloadEpisode(episode)
                         }
                     }
@@ -235,10 +241,6 @@ class PodcastDetailViewModel @Inject constructor(
         // Trigger the loading logic again to fetch the latest episodes
         _state.update { it.copy(isLoading = true, errorMessage = null) }
         loadPodcastDetails()
-    }
-
-    private fun downloadEpisode(episodeId: String) {
-        // Architecture Next Step: Trigger WorkManager
     }
 
     fun toggleSubscription() {

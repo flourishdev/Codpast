@@ -214,9 +214,9 @@ fun EpisodeRowItem(
                             contentAlignment = Alignment.Center
                         ) {
                             CircularProgressIndicator(
-                                progress = { (download.progress / 100f).coerceIn(0f, 1f) },
                                 modifier = Modifier.fillMaxSize(),
-                                strokeWidth = 2.dp
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.primary
                             )
                         }
                     }

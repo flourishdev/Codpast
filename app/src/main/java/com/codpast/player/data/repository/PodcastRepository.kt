@@ -25,6 +25,7 @@ import com.codpast.player.service.EpisodeDownloadWorker
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import android.net.Uri
+import com.codpast.player.data.local.entity.DownloadStatus as DbDownloadStatus
 
 enum class PositionMode {
     APPEND,
@@ -256,6 +257,22 @@ class PodcastRepository @Inject constructor(
     }
 
     suspend fun downloadEpisode(episode: EpisodeEntity) {
+        val downloadsDir = File(context.filesDir, "downloads").apply {
+            if (!exists()) mkdirs()
+        }
+        val targetFile = File(downloadsDir, "${episode.id.hashCode()}.mp3")
+
+        // 1. Immediately insert DOWNLOADING record into Room SQLite SSOT so UI updates instantly
+        val initialDownloadRecord = DownloadEntity(
+            episodeId = episode.id,
+            podcastId = episode.podcastId,
+            localPath = targetFile.absolutePath,
+            progress = 0,
+            status = DbDownloadStatus.DOWNLOADING
+        )
+        podcastDao.insertOrUpdateDownload(initialDownloadRecord)
+
+        // 2. Dispatch WorkManager for background network transfer
         val inputData = Data.Builder()
             .putString(EpisodeDownloadWorker.KEY_EPISODE_ID, episode.id)
             .putString(EpisodeDownloadWorker.KEY_PODCAST_ID, episode.podcastId)
