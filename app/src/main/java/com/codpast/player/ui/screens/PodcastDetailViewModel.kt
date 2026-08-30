@@ -241,6 +241,22 @@ class PodcastDetailViewModel @Inject constructor(
         // Architecture Next Step: Trigger WorkManager
     }
 
+    fun toggleSubscription() {
+        val currentPodcast = _state.value.podcast ?: return
+        val currentEpisodes = _state.value.episodes
+
+        viewModelScope.launch {
+            if (_state.value.isSubscribed) {
+                repository.deletePodcastAndEpisodes(currentPodcast.id)
+                _state.update { it.copy(isSubscribed = false) }
+            } else {
+                val subscribedPodcast = currentPodcast.copy(isSubscribed = true)
+                repository.savePodcastAndEpisodes(subscribedPodcast, currentEpisodes)
+                _state.update { it.copy(isSubscribed = true, podcast = subscribedPodcast) }
+            }
+        }
+    }
+
     override fun onCleared() {
         super.onCleared()
         // Always release the MediaController future to prevent memory leaks when navigating away

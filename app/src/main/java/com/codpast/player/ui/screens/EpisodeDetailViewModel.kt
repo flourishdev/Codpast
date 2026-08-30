@@ -1,4 +1,5 @@
 package com.codpast.player.ui.screens
+import com.codpast.player.data.local.entity.DownloadStatus as DbDownloadStatus
 
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -18,6 +19,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -31,26 +33,37 @@ class EpisodeDetailViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val episodeId: String = checkNotNull(savedStateHandle["episodeId"])
-    private val feedUrl: String? = savedStateHandle["feedUrl"] // Grab the feedUrl
+    private val feedUrl: String? = savedStateHandle["feedUrl"]
 
-    private val _isPlaying = MutableStateFlow(false)
-    private val _downloadStatus = MutableStateFlow(DownloadStatus.NOT_DOWNLOADED)
     private val _errorMessage = MutableStateFlow<String?>(null)
 
-    // Memory caches for unsubscribed previews
+    // Caches for previewing unsubscribed episodes/podcasts from RSS
     private val previewEpisode = MutableStateFlow<EpisodeEntity?>(null)
     private val previewPodcast = MutableStateFlow<PodcastEntity?>(null)
 
-    // Room DB streams for subscribed data
+    // Reactive DB streams
     private val dbEpisodeFlow = repository.getEpisodeById(episodeId)
     private val dbPodcastFlow = dbEpisodeFlow.flatMapLatest { episode ->
         if (episode != null) repository.getPodcastById(episode.podcastId) else flowOf(null)
     }
 
-    // Group streams to stay under the limit
+    // Reactive playback and download state streams
+    private val isPlayingFlow = progressManager.currentEpisodeId.map { activeId ->
+        activeId == episodeId
+    }
+
+    private val downloadStatusFlow = repository.getDownloadForEpisode(episodeId).map { download ->
+        when (download?.status) {
+            DbDownloadStatus.DOWNLOADING -> DownloadStatus.DOWNLOADING
+            DbDownloadStatus.COMPLETED -> DownloadStatus.DOWNLOADED
+            else -> DownloadStatus.NOT_DOWNLOADED
+        }
+    }
+
+    // Group flows to satisfy combine parameter limits
     private val dbData = combine(dbEpisodeFlow, dbPodcastFlow) { ep, pod -> Pair(ep, pod) }
     private val preData = combine(previewEpisode, previewPodcast) { ep, pod -> Pair(ep, pod) }
-    private val uiData = combine(_isPlaying, _downloadStatus, _errorMessage) { isPlaying, status, error ->
+    private val uiData = combine(isPlayingFlow, downloadStatusFlow, _errorMessage) { isPlaying, status, error ->
         Triple(isPlaying, status, error)
     }
 
@@ -69,7 +82,7 @@ class EpisodeDetailViewModel @Inject constructor(
             episode = currentEpisode,
             podcast = currentPodcast,
             isPlaying = ui.first,
-            playbackPositionMs = position,
+            playbackPositionMs = if (ui.first) position else (currentEpisode?.playbackPosition ?: 0L),
             downloadStatus = ui.second,
             errorMessage = ui.third
         )
@@ -80,7 +93,6 @@ class EpisodeDetailViewModel @Inject constructor(
     )
 
     init {
-        // If we have a feedUrl, fetch the preview!
         if (feedUrl != null) {
             viewModelScope.launch {
                 try {
@@ -100,7 +112,19 @@ class EpisodeDetailViewModel @Inject constructor(
     fun onIntent(intent: EpisodeDetailIntent) {
         when (intent) {
             is EpisodeDetailIntent.TogglePlayPause -> {
-                _isPlaying.value = !_isPlaying.value
+                val currentEpisode = state.value.episode ?: return
+                val currentPodcast = state.value.podcast ?: return
+
+                viewModelScope.launch {
+                    try {
+                        // Persist to Room SQLite first so SSOT contains episode and podcast entities
+                        repository.savePodcastAndEpisodes(currentPodcast, listOf(currentEpisode))
+                        // Triggers queue insertion and notifies PlaybackProgressManager / PodcastPlaybackService
+                        repository.playEpisode(currentEpisode.id)
+                    } catch (e: Exception) {
+                        _errorMessage.value = "Failed to play episode."
+                    }
+                }
             }
             is EpisodeDetailIntent.SeekTo -> {
                 progressManager.updateProgress(episodeId, intent.positionMs)
@@ -111,20 +135,34 @@ class EpisodeDetailViewModel @Inject constructor(
 
                 viewModelScope.launch {
                     try {
-                        // Save offline first, then enqueue
                         repository.savePodcastAndEpisodes(currentPodcast, listOf(currentEpisode))
                         repository.enqueueEpisode(currentEpisode.id)
-                        android.util.Log.d("QueueDebug", "Enqueued from EpisodeDetail: ${currentEpisode.title}")
                     } catch (e: Exception) {
-                        android.util.Log.e("QueueDebug", "Failed to enqueue", e)
+                        _errorMessage.value = "Failed to enqueue episode."
                     }
                 }
             }
             is EpisodeDetailIntent.DownloadEpisode -> {
-                _downloadStatus.value = DownloadStatus.QUEUED
+                val currentEpisode = state.value.episode ?: return
+                val currentPodcast = state.value.podcast ?: return
+
+                viewModelScope.launch {
+                    try {
+                        repository.savePodcastAndEpisodes(currentPodcast, listOf(currentEpisode))
+                        repository.downloadEpisode(currentEpisode)
+                    } catch (e: Exception) {
+                        _errorMessage.value = "Failed to start download."
+                    }
+                }
             }
             is EpisodeDetailIntent.DeleteDownload -> {
-                _downloadStatus.value = DownloadStatus.NOT_DOWNLOADED
+                viewModelScope.launch {
+                    try {
+                        repository.deleteDownload(episodeId)
+                    } catch (e: Exception) {
+                        _errorMessage.value = "Failed to delete download."
+                    }
+                }
             }
         }
     }

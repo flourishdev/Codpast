@@ -35,13 +35,19 @@ class EpisodeDownloadWorker @AssistedInject constructor(
         }
         val targetFile = File(downloadsDir, "${episodeId.hashCode()}.mp3")
 
-        val downloadRecord = DownloadEntity(
+        // Clean up any stale/partial files from previous attempts
+        if (targetFile.exists()) {
+            targetFile.delete()
+        }
+
+        var downloadRecord = DownloadEntity(
             episodeId = episodeId,
             podcastId = podcastId,
             localPath = targetFile.absolutePath,
             progress = 0,
             status = DownloadStatus.DOWNLOADING
         )
+        // Mark status as DOWNLOADING in Room SQLite SSOT
         podcastDao.insertOrUpdateDownload(downloadRecord)
 
         try {
@@ -58,6 +64,7 @@ class EpisodeDownloadWorker @AssistedInject constructor(
 
             val contentLength = responseBody.contentLength()
             var bytesRead = 0L
+            var lastReportedTime = System.currentTimeMillis()
 
             responseBody.byteStream().use { inputStream ->
                 FileOutputStream(targetFile).use { outputStream ->
@@ -69,19 +76,29 @@ class EpisodeDownloadWorker @AssistedInject constructor(
                         outputStream.write(buffer, 0, read)
                         bytesRead += read
 
+                        val currentTime = System.currentTimeMillis()
+
                         if (contentLength > 0) {
                             val currentProgress = ((bytesRead * 100) / contentLength).toInt()
-                            if (currentProgress >= lastReportedProgress + 5) {
+                            if (currentProgress >= lastReportedProgress + 5 || currentTime - lastReportedTime > 1000L) {
                                 lastReportedProgress = currentProgress
-                                podcastDao.insertOrUpdateDownload(
-                                    downloadRecord.copy(progress = currentProgress)
-                                )
+                                lastReportedTime = currentTime
+                                downloadRecord = downloadRecord.copy(progress = currentProgress)
+                                podcastDao.insertOrUpdateDownload(downloadRecord)
+                            }
+                        } else {
+                            // If Content-Length header is missing, update DB periodically every 1000ms
+                            if (currentTime - lastReportedTime > 1000L) {
+                                lastReportedTime = currentTime
+                                podcastDao.insertOrUpdateDownload(downloadRecord)
                             }
                         }
                     }
+                    outputStream.flush()
                 }
             }
 
+            // Successfully finished downloading
             podcastDao.insertOrUpdateDownload(
                 downloadRecord.copy(
                     progress = 100,

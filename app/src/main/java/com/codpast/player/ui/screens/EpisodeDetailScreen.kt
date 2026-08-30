@@ -12,7 +12,6 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -32,6 +31,8 @@ import com.codpast.player.ui.mvi.DownloadStatus
 import com.codpast.player.ui.mvi.EpisodeDetailIntent
 import com.codpast.player.ui.mvi.QueuePosition
 import android.text.format.DateUtils
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.DownloadDone
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -113,19 +114,51 @@ fun EpisodeDetailScreen(
                             Icon(Icons.Default.Add, contentDescription = "Enqueue")
                         }
                         Spacer(modifier = Modifier.width(8.dp))
+
+                        // Adaptive Download Button with Progress Indicator
                         FilledTonalIconButton(
                             onClick = {
-                                if (state.downloadStatus == DownloadStatus.NOT_DOWNLOADED) {
-                                    viewModel.onIntent(EpisodeDetailIntent.DownloadEpisode)
-                                } else {
-                                    viewModel.onIntent(EpisodeDetailIntent.DeleteDownload)
+                                when (state.downloadStatus) {
+                                    DownloadStatus.NOT_DOWNLOADED -> {
+                                        viewModel.onIntent(EpisodeDetailIntent.DownloadEpisode)
+                                    }
+                                    DownloadStatus.DOWNLOADED -> {
+                                        viewModel.onIntent(EpisodeDetailIntent.DeleteDownload)
+                                    }
+                                    else -> {
+                                        // Queued or Downloading: Do nothing on tap or handle cancellation
+                                    }
                                 }
                             }
                         ) {
-                            Icon(
-                                imageVector = if (state.downloadStatus == DownloadStatus.NOT_DOWNLOADED) Icons.Default.Add else Icons.Default.Check,
-                                contentDescription = "Download"
-                            )
+                            when (state.downloadStatus) {
+                                DownloadStatus.NOT_DOWNLOADED -> {
+                                    Icon(
+                                        imageVector = Icons.Default.Download,
+                                        contentDescription = "Download Episode"
+                                    )
+                                }
+                                DownloadStatus.QUEUED, DownloadStatus.DOWNLOADING -> {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(20.dp),
+                                        strokeWidth = 2.dp,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                                DownloadStatus.DOWNLOADED -> {
+                                    Icon(
+                                        imageVector = Icons.Default.DownloadDone,
+                                        contentDescription = "Downloaded",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                                else -> {
+                                    Icon(
+                                        imageVector = Icons.Default.Download,
+                                        contentDescription = "Download Episode"
+                                    )
+                                }
+                            }
                         }
                     }
 
