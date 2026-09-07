@@ -235,8 +235,17 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
+//    override fun onCleared() {
+//        super.onCleared()
+//        mediaControllerFuture?.let { MediaController.releaseFuture(it) }
+//    }
+
     override fun onCleared() {
         super.onCleared()
-        mediaControllerFuture?.let { MediaController.releaseFuture(it) }
+        // Explicitly release the ListenableFuture wrapper as required by Media3 lifecycle rules
+        mediaControllerFuture?.let { future ->
+            MediaController.releaseFuture(future)
+        }
+        mediaController = null
     }
 }

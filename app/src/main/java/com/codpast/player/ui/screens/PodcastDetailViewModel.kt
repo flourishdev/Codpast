@@ -62,6 +62,7 @@ class PodcastDetailViewModel @Inject constructor(
             }
         }
     }
+
     private fun observeSubscriptionStatus() {
         val targetId = podcastId ?: feedUrl
         if (!targetId.isNullOrBlank()) {
@@ -82,7 +83,8 @@ class PodcastDetailViewModel @Inject constructor(
 
     private fun initializeController() {
         // Point the token to our specific PodcastPlaybackService
-        val sessionToken = SessionToken(context, ComponentName(context, PodcastPlaybackService::class.java))
+        val sessionToken =
+            SessionToken(context, ComponentName(context, PodcastPlaybackService::class.java))
 
         // Build the controller asynchronously
         mediaControllerFuture = MediaController.Builder(context, sessionToken).buildAsync()
@@ -129,7 +131,8 @@ class PodcastDetailViewModel @Inject constructor(
                 if (!targetFeedUrl.isNullOrBlank()) {
                     val remotePodcast = repository.parseRssUrl(targetFeedUrl)
                     if (remotePodcast != null) {
-                        val remoteEpisodes = repository.fetchEpisodes(remotePodcast.id, targetFeedUrl)
+                        val remoteEpisodes =
+                            repository.fetchEpisodes(remotePodcast.id, targetFeedUrl)
 
                         // Preserve subscription state on the remote podcast object
                         val finalPodcast = remotePodcast.copy(
@@ -155,7 +158,9 @@ class PodcastDetailViewModel @Inject constructor(
                     }
                 } else if (localPodcast != null) {
                     // 3. Offline Fallback: Load local DB episodes
-                    val localEpisodes = repository.getEpisodesByPodcastId(localPodcast.id).firstOrNull() ?: emptyList()
+                    val localEpisodes =
+                        repository.getEpisodesByPodcastId(localPodcast.id).firstOrNull()
+                            ?: emptyList()
                     _state.update {
                         it.copy(
                             isLoading = false,
@@ -165,7 +170,12 @@ class PodcastDetailViewModel @Inject constructor(
                         )
                     }
                 } else {
-                    _state.update { it.copy(isLoading = false, errorMessage = "No podcast ID or Feed URL provided.") }
+                    _state.update {
+                        it.copy(
+                            isLoading = false,
+                            errorMessage = "No podcast ID or Feed URL provided."
+                        )
+                    }
                 }
 
             } catch (e: Exception) {
@@ -173,7 +183,8 @@ class PodcastDetailViewModel @Inject constructor(
                 val targetId = podcastId ?: feedUrl
                 if (!targetId.isNullOrBlank()) {
                     val localPodcast = repository.getPodcastByIdSnapshot(targetId)
-                    val localEpisodes = repository.getEpisodesByPodcastId(targetId).firstOrNull() ?: emptyList()
+                    val localEpisodes =
+                        repository.getEpisodesByPodcastId(targetId).firstOrNull() ?: emptyList()
 
                     if (localPodcast != null) {
                         _state.update {
@@ -212,12 +223,15 @@ class PodcastDetailViewModel @Inject constructor(
                         }
                     }
                 }
+
                 is PodcastDetailIntent.PlayEpisode -> {
                     repository.playEpisode(intent.episodeId)
                 }
+
                 is PodcastDetailIntent.EnqueueEpisode -> {
                     repository.enqueueEpisode(intent.episodeId)
                 }
+
                 is PodcastDetailIntent.DownloadEpisode -> {
                     val episode = _state.value.episodes.find { it.id == intent.episodeId }
                     val podcast = _state.value.podcast
@@ -226,10 +240,8 @@ class PodcastDetailViewModel @Inject constructor(
                         if (currentDownload?.status == DbDownloadStatus.COMPLETED) {
                             repository.deleteDownload(intent.episodeId)
                         } else if (currentDownload?.status != DbDownloadStatus.DOWNLOADING) {
-                            // Save offline first to satisfy SSOT entity references
-                            repository.savePodcastAndEpisodes(podcast, listOf(episode))
-                            // Dispatch immediate download write + WorkManager
-                            repository.downloadEpisode(episode)
+                            // Enforces SSOT persistence, auto-enqueues, and dispatches WorkManager
+                            repository.downloadEpisode(podcast, episode)
                         }
                     }
                 }

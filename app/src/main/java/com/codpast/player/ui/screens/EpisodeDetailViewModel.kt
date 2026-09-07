@@ -181,7 +181,7 @@ class EpisodeDetailViewModel @Inject constructor(
                         // Persist offline first so Room entity references are valid
                         repository.savePodcastAndEpisodes(currentPodcast, listOf(currentEpisode))
                         // Dispatch WorkManager download worker
-                        repository.downloadEpisode(currentEpisode)
+                        repository.downloadEpisode(currentPodcast, currentEpisode)
                     } catch (e: Exception) {
                         _errorMessage.value = "Failed to start download."
                     }

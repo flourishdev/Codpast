@@ -62,8 +62,8 @@ interface PodcastDao {
 
     // --- Queue Management ---
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertQueueItem(queueItem: QueueEntity)
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertQueueItem(queueEntity: QueueEntity)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun addToQueue(queueItem: QueueEntity)
@@ -142,6 +142,23 @@ interface PodcastDao {
         insertQueueItem(QueueEntity(episodeId, position))
     }
 
+    /**
+     * Idempotently enqueues an episode. If already present in the queue,
+     * the existing position is preserved.
+     */
+    @Transaction
+    suspend fun enqueueEpisodeIdempotent(episodeId: String) {
+        if (!isEpisodeInQueue(episodeId)) {
+            val nextPosition = getNextPosition()
+            insertQueueItem(
+                QueueEntity(
+                    episodeId = episodeId,
+                    position = nextPosition
+                )
+            )
+        }
+    }
+
     // --- Download Management ---
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -162,4 +179,12 @@ interface PodcastDao {
     @Transaction
     @Query("SELECT * FROM queue ORDER BY position ASC LIMIT 1")
     suspend fun getFirstQueueItemSnapshot(): QueueWithEpisode?
+
+    // --- MediaLibrarySession Snapshot Helpers ---
+
+    @Query("SELECT * FROM episodes WHERE podcastId = :podcastId ORDER BY publishedAt DESC")
+    suspend fun getEpisodesForPodcastSnapshot(podcastId: String): List<EpisodeEntity>
+
+    @Query("SELECT * FROM downloads WHERE status = 'COMPLETED'")
+    suspend fun getAllCompletedDownloadsSnapshot(): List<DownloadEntity>
 }

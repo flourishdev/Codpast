@@ -26,6 +26,8 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import android.net.Uri
 import com.codpast.player.data.local.entity.DownloadStatus as DbDownloadStatus
+import androidx.work.ExistingWorkPolicy
+
 
 enum class PositionMode {
     APPEND,
@@ -251,13 +253,19 @@ class PodcastRepository @Inject constructor(
         return podcastDao.getAllDownloads()
     }
 
-    suspend fun downloadEpisode(episode: EpisodeEntity) {
+    suspend fun downloadEpisode(podcast: PodcastEntity, episode: EpisodeEntity) {
+        // 1. Ensure entity exists in Room for Queue and Download INNER JOIN queries
+        savePodcastAndEpisodes(podcast, listOf(episode))
+
+        // 2. Auto-enqueue if not already present in queue
+        podcastDao.enqueueEpisodeIdempotent(episode.id)
+
+        // 3. Instant Room write: Mark status as DOWNLOADING immediately for reactive UI feedback
         val downloadsDir = File(context.filesDir, "downloads").apply {
             if (!exists()) mkdirs()
         }
         val targetFile = File(downloadsDir, "${episode.id.hashCode()}.mp3")
 
-        // 1. INSTANT ROOM WRITE: Mark as DOWNLOADING in Room SQLite SSOT immediately
         val initialDownloadRecord = DownloadEntity(
             episodeId = episode.id,
             podcastId = episode.podcastId,
@@ -267,7 +275,7 @@ class PodcastRepository @Inject constructor(
         )
         podcastDao.insertOrUpdateDownload(initialDownloadRecord)
 
-        // 2. Dispatch WorkManager for background network transfer
+        // 4. Dispatch WorkManager for background file streaming
         val inputData = Data.Builder()
             .putString(EpisodeDownloadWorker.KEY_EPISODE_ID, episode.id)
             .putString(EpisodeDownloadWorker.KEY_PODCAST_ID, episode.podcastId)
@@ -295,7 +303,38 @@ class PodcastRepository @Inject constructor(
         }
     }
 
+//    private fun enqueueDownloadWorker(episodeId: String) {
+//        val inputData = Data.Builder()
+//            .putString(EpisodeDownloadWorker.KEY_EPISODE_ID, episodeId)
+//            .build()
+//
+//        val constraints = Constraints.Builder()
+//            .setRequiredNetworkType(NetworkType.CONNECTED)
+//            .build()
+//
+//        val downloadRequest = OneTimeWorkRequestBuilder<EpisodeDownloadWorker>()
+//            .setInputData(inputData)
+//            .setConstraints(constraints)
+//            .build()
+//
+//        workManager.enqueueUniqueWork(
+//            "download_$episodeId",
+//            ExistingWorkPolicy.KEEP,
+//            downloadRequest
+//        )
+//    }
+
     suspend fun getDownloadForEpisodeSnapshot(episodeId: String): DownloadEntity? {
         return podcastDao.getDownloadForEpisodeSnapshot(episodeId)
+    }
+
+    // --- MediaLibrarySession Snapshot Operations ---
+
+    suspend fun getEpisodesForPodcastSnapshot(podcastId: String): List<EpisodeEntity> {
+        return podcastDao.getEpisodesForPodcastSnapshot(podcastId)
+    }
+
+    suspend fun getAllCompletedDownloadsSnapshot(): List<DownloadEntity> {
+        return podcastDao.getAllCompletedDownloadsSnapshot()
     }
 }

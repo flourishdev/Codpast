@@ -30,6 +30,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import java.io.File
+import androidx.media3.session.MediaLibraryService.LibraryParams
+import androidx.media3.session.MediaLibraryService.MediaLibrarySession
+import com.codpast.player.util.toMediaItem
+import kotlinx.coroutines.guava.future
 
 @AndroidEntryPoint
 class PodcastPlaybackService : MediaLibraryService() {
@@ -195,30 +199,51 @@ class PodcastPlaybackService : MediaLibraryService() {
      * Serves the 3-Tier Media Tree navigation for Android Auto dashboard integration.
      */
     private inner class AndroidAutoTreeCallback : MediaLibrarySession.Callback {
-        private val rootItem = buildBrowsableMediaItem("root_id", "Codpast")
-        private val subscribedItem =
-            buildBrowsableMediaItem("tier_subscriptions", "Subscribed Podcasts")
-        private val upNextItem = buildBrowsableMediaItem("tier_up_next", "Up Next Queue")
-        private val downloadedItem =
-            buildBrowsableMediaItem("tier_downloads", "Downloaded Episodes")
 
-        private fun buildBrowsableMediaItem(id: String, title: String): MediaItem {
-            return MediaItem.Builder()
-                .setMediaId(id)
-                .setMediaMetadata(
-                    MediaMetadata.Builder()
-                        .setIsBrowsable(true)
-                        .setIsPlayable(false)
-                        .setTitle(title)
-                        .build()
-                ).build()
-        }
+        private val subscribedItem = MediaItem.Builder()
+            .setMediaId("tier_subscriptions")
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setIsBrowsable(true)
+                    .setIsPlayable(false)
+                    .setTitle("Subscribed Podcasts")
+                    .build()
+            ).build()
+
+        private val upNextItem = MediaItem.Builder()
+            .setMediaId("tier_up_next")
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setIsBrowsable(true)
+                    .setIsPlayable(false)
+                    .setTitle("Up Next Queue")
+                    .build()
+            ).build()
+
+        private val downloadedItem = MediaItem.Builder()
+            .setMediaId("tier_downloads")
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setIsBrowsable(true)
+                    .setIsPlayable(false)
+                    .setTitle("Downloaded Episodes")
+                    .build()
+            ).build()
 
         override fun onGetLibraryRoot(
             session: MediaLibrarySession,
             browser: MediaSession.ControllerInfo,
             params: LibraryParams?
         ): ListenableFuture<LibraryResult<MediaItem>> {
+            val rootItem = MediaItem.Builder()
+                .setMediaId("root_id")
+                .setMediaMetadata(
+                    MediaMetadata.Builder()
+                        .setIsBrowsable(true)
+                        .setIsPlayable(false)
+                        .setTitle("Codpast Library")
+                        .build()
+                ).build()
             return Futures.immediateFuture(LibraryResult.ofItem(rootItem, params))
         }
 
@@ -232,15 +257,10 @@ class PodcastPlaybackService : MediaLibraryService() {
         ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
             return when (parentId) {
                 "root_id" -> Futures.immediateFuture(
-                    LibraryResult.ofItemList(
-                        ImmutableList.of(subscribedItem, upNextItem, downloadedItem),
-                        params
-                    )
+                    LibraryResult.ofItemList(ImmutableList.of(subscribedItem, upNextItem, downloadedItem), params)
                 )
-
                 "tier_subscriptions" -> serviceScope.future {
                     val subscriptions = repository.getSubscribedPodcastsSnapshot()
-
                     val mediaItems = subscriptions.map { podcast ->
                         MediaItem.Builder()
                             .setMediaId(podcast.id)
@@ -249,20 +269,37 @@ class PodcastPlaybackService : MediaLibraryService() {
                                     .setIsBrowsable(true)
                                     .setIsPlayable(false)
                                     .setTitle(podcast.title)
-                                    .setArtworkUri(podcast.artworkUrl.takeIf { it.isNotEmpty() }?.let { Uri.parse(it) })
+                                    .setArtworkUri(if (podcast.artworkUrl.isNotBlank()) Uri.parse(podcast.artworkUrl) else null)
                                     .build()
                             ).build()
                     }
                     LibraryResult.ofItemList(ImmutableList.copyOf(mediaItems), params)
                 }
-
-                "tier_up_next", "tier_downloads" -> {
-                    Futures.immediateFuture(LibraryResult.ofItemList(ImmutableList.of(), params))
+                "tier_up_next" -> serviceScope.future {
+                    val queueEpisodes = repository.getQueueSnapshotWithEpisodes()
+                    val mediaItems = queueEpisodes.map { ep -> ep.toMediaItem(null) }
+                    LibraryResult.ofItemList(ImmutableList.copyOf(mediaItems), params)
                 }
+                "tier_downloads" -> serviceScope.future {
+                    val completedDownloads = repository.getAllCompletedDownloadsSnapshot()
+                    val mediaItems = completedDownloads.mapNotNull { download ->
+                        val episode = repository.getEpisodeByIdSnapshot(download.episodeId)
+                        val podcast = episode?.let { repository.getPodcastByIdSnapshot(it.podcastId) }
 
-                else -> Futures.immediateFuture(
-                    LibraryResult.ofError(androidx.media3.session.SessionError.ERROR_BAD_VALUE)
-                )
+                        episode?.let { ep ->
+                            val localFileUri = Uri.fromFile(java.io.File(download.localPath)).toString()
+                            ep.copy(audioUrl = localFileUri).toMediaItem(podcast)
+                        }
+                    }
+                    LibraryResult.ofItemList(ImmutableList.copyOf(mediaItems), params)
+                }
+                else -> serviceScope.future {
+                    // Dynamic lookup: parentId is a Podcast ID!
+                    val episodes = repository.getEpisodesForPodcastSnapshot(parentId)
+                    val podcast = repository.getPodcastByIdSnapshot(parentId)
+                    val mediaItems = episodes.map { ep -> ep.toMediaItem(podcast) }
+                    LibraryResult.ofItemList(ImmutableList.copyOf(mediaItems), params)
+                }
             }
         }
     }
