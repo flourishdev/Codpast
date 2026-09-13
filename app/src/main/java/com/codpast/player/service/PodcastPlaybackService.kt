@@ -35,6 +35,7 @@ import java.io.File
 import javax.inject.Inject
 import kotlin.time.Duration.Companion.seconds
 
+
 @AndroidEntryPoint
 class PodcastPlaybackService : MediaLibraryService() {
 
@@ -63,7 +64,9 @@ class PodcastPlaybackService : MediaLibraryService() {
         // Configure ExoPlayer using 100% stable APIs
         val exoPlayer = ExoPlayer.Builder(this)
             .setAudioAttributes(audioAttributes, true)
-            .setHandleAudioBecomingNoisy(true) // Automatically pause when headphones disconnect
+            .setHandleAudioBecomingNoisy(true)
+            .setSeekBackIncrementMs(10000L)
+            .setSeekForwardIncrementMs(30000L)
             .build()
         player = exoPlayer
 
@@ -264,21 +267,20 @@ class PodcastPlaybackService : MediaLibraryService() {
         private val subscribedItem = buildBrowsableMediaItem(
             id = "tier_subscriptions",
             title = "Follows",
-            iconResId = R.drawable.ic_launcher_foreground
+            folderType = MediaMetadata.MEDIA_TYPE_FOLDER_PODCASTS
         )
         private val upNextItem = buildBrowsableMediaItem(
             id = "tier_up_next",
             title = "Queue",
-            iconResId = R.drawable.ic_launcher_foreground
+            folderType = MediaMetadata.MEDIA_TYPE_FOLDER_PLAYLISTS
         )
         private val downloadedItem = buildBrowsableMediaItem(
             id = "tier_downloads",
             title = "Downloads",
-            iconResId = R.drawable.ic_launcher_foreground
+            folderType = MediaMetadata.MEDIA_TYPE_FOLDER_MIXED
         )
 
-        private fun buildBrowsableMediaItem(id: String, title: String, iconResId: Int): MediaItem {
-            val iconUri = "android.resource://$packageName/$iconResId".toUri()
+        private fun buildBrowsableMediaItem(id: String, title: String, folderType: Int): MediaItem {
             return MediaItem.Builder()
                 .setMediaId(id)
                 .setMediaMetadata(
@@ -286,19 +288,37 @@ class PodcastPlaybackService : MediaLibraryService() {
                         .setIsBrowsable(true)
                         .setIsPlayable(false)
                         .setTitle(title)
-                        .setArtworkUri(iconUri)
+                        .setFolderType(folderType)
                         .build()
                 )
                 .build()
         }
 
-        override fun onConnect(
-            session: MediaSession,
-            controller: MediaSession.ControllerInfo
-        ): MediaSession.ConnectionResult {
-            // Standard ConnectionResult.accept using pure stable session & player commands
-            return super.onConnect(session, controller)
-        }
+//        override fun onConnect(
+//            session: MediaSession,
+//            controller: MediaSession.ControllerInfo
+//        ): MediaSession.ConnectionResult {
+//            val connectionResult = super.onConnect(session, controller)
+//
+//            val sessionCommands = connectionResult.availableSessionCommands.buildUpon()
+//                .add(skipNextCommand)
+//                .build()
+//
+//            // Grant hardware media keys and app controllers explicit access to seek, skip, & play/pause
+//            val playerCommands = connectionResult.availablePlayerCommands.buildUpon()
+//                .add(Player.COMMAND_PLAY_PAUSE)
+//                .add(Player.COMMAND_SEEK_FORWARD)
+//                .add(Player.COMMAND_SEEK_BACK)
+//                .add(Player.COMMAND_SEEK_TO_NEXT)
+//                .add(Player.COMMAND_SEEK_TO_PREVIOUS)
+//                .add(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
+//                .build()
+//
+//            return MediaSession.ConnectionResult.accept(
+//                sessionCommands,
+//                playerCommands
+//            )
+//        }
 
         override fun onGetLibraryRoot(
             session: MediaLibrarySession,
@@ -346,8 +366,12 @@ class PodcastPlaybackService : MediaLibraryService() {
                     LibraryResult.ofItemList(ImmutableList.copyOf(mediaItems), params)
                 }
                 "tier_up_next" -> serviceScope.future {
-                    val queueEpisodes = repository.getQueueSnapshotWithEpisodes()
-                    val mediaItems = queueEpisodes.map { ep -> ep.toMediaItem(null) }
+                    // Extract QueueWithEpisode fields (episode & podcast) to pass valid receiver & parameter to toMediaItem
+                    val queueItems = repository.getQueueSnapshotWithEpisodes()
+                    val mediaItems = queueItems.map { item ->
+                        val podcast = repository.getPodcastByIdSnapshot(item.podcastId)
+                        item.toMediaItem(podcast)
+                    }
                     LibraryResult.ofItemList(ImmutableList.copyOf(mediaItems), params)
                 }
                 "tier_downloads" -> serviceScope.future {

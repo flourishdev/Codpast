@@ -205,21 +205,20 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun onIntent(intent: PlayerIntent) {
-        val controller = mediaController
+        val controller = mediaController ?: return
         when (intent) {
             is PlayerIntent.TogglePlayPause -> {
-                if (controller == null) return
                 if (controller.currentMediaItem == null) {
                     // Cold-launch fallback: fetch top uncompleted queue episode from Room
                     viewModelScope.launch {
                         val queueSnapshot = repository.getQueueSnapshotWithEpisodes()
-                        val topItem = queueSnapshot.firstOrNull { !it.isCompleted }
-                        if (topItem != null) {
-                            val podcast = repository.getPodcastByIdSnapshot(topItem.podcastId)
-                            val mediaItem = topItem.toMediaItem(podcast)
+                        val topEpisode = queueSnapshot.map { it }.firstOrNull { !it.isCompleted }
+                        if (topEpisode != null) {
+                            val podcast = repository.getPodcastByIdSnapshot(topEpisode.podcastId)
+                            val mediaItem = topEpisode.toMediaItem(podcast)
                             controller.setMediaItem(mediaItem)
-                            if (topItem.playbackPosition > 0L) {
-                                controller.seekTo(topItem.playbackPosition)
+                            if (topEpisode.playbackPosition > 0L) {
+                                controller.seekTo(topEpisode.playbackPosition)
                             }
                             controller.prepare()
                             controller.play()
@@ -237,33 +236,28 @@ class PlayerViewModel @Inject constructor(
                 }
             }
 
-            is PlayerIntent.SeekTo -> {
-                controller?.seekTo(intent.positionMs)
-                _state.update { it.copy(currentPositionMs = intent.positionMs) }
-            }
-
             is PlayerIntent.SkipForward -> {
-                val current = controller?.currentPosition ?: 0L
-                val duration = controller?.duration ?: 0L
-                val skipMs = if (intent.ms > 0L) intent.ms else 30000L
-                val newPos = (current + skipMs).coerceAtMost(duration)
-                controller?.seekTo(newPos)
+                // Delegates to ExoPlayer's configured 30s fast-forward increment
+                controller.seekForward()
             }
 
             is PlayerIntent.SkipBackward -> {
-                val current = controller?.currentPosition ?: 0L
-                val skipMs = if (intent.ms > 0L) intent.ms else 10000L
-                val newPos = (current - skipMs).coerceAtLeast(0L)
-                controller?.seekTo(newPos)
+                // Delegates to ExoPlayer's configured 10s rewind increment
+                controller.seekBack()
+            }
+
+            is PlayerIntent.SeekTo -> {
+                controller.seekTo(intent.positionMs)
+                _state.update { it.copy(currentPositionMs = intent.positionMs) }
             }
 
             is PlayerIntent.SetSpeed -> {
-                controller?.playbackParameters = PlaybackParameters(intent.speed)
+                controller.playbackParameters = PlaybackParameters(intent.speed)
                 _state.update { it.copy(playbackSpeed = intent.speed) }
             }
 
             is PlayerIntent.SkipToNext -> {
-                if (controller?.hasNextMediaItem() == true) {
+                if (controller.hasNextMediaItem()) {
                     controller.seekToNextMediaItem()
                 } else {
                     viewModelScope.launch {
