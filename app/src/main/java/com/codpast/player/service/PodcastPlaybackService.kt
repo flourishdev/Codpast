@@ -2,7 +2,6 @@ package com.codpast.player.service
 
 import android.content.Intent
 import android.net.Uri
-import android.os.Bundle
 import androidx.core.net.toUri
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -10,12 +9,9 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.session.CommandButton
 import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
-import androidx.media3.session.SessionCommand
-import androidx.media3.session.SessionResult
 import com.codpast.player.R
 import com.codpast.player.data.local.entity.DownloadStatus
 import com.codpast.player.data.local.entity.EpisodeEntity
@@ -39,8 +35,6 @@ import java.io.File
 import javax.inject.Inject
 import kotlin.time.Duration.Companion.seconds
 
-const val ACTION_SKIP_NEXT = "com.codpast.player.SKIP_NEXT"
-
 @AndroidEntryPoint
 class PodcastPlaybackService : MediaLibraryService() {
 
@@ -57,29 +51,19 @@ class PodcastPlaybackService : MediaLibraryService() {
 
     private var isInitialColdStart = true
 
-    private val skipNextCommand = SessionCommand(ACTION_SKIP_NEXT, Bundle.EMPTY)
-    private val skipNextButton by lazy {
-        CommandButton.Builder(CommandButton.ICON_NEXT)
-            .setDisplayName(getString(R.string.skip_next))
-            .setSessionCommand(skipNextCommand)
-            .build()
-    }
-
     override fun onCreate() {
         super.onCreate()
 
-        // Configure ExoPlayer explicitly for spoken audio (pitch-preserved speech)
+        // Configure ExoPlayer explicitly for spoken audio using stable AudioAttributes
         val audioAttributes = AudioAttributes.Builder()
             .setContentType(C.AUDIO_CONTENT_TYPE_SPEECH)
             .setUsage(C.USAGE_MEDIA)
             .build()
 
-        // Configure ExoPlayer with 10s rewind / 30s fast-forward increments
+        // Configure ExoPlayer using 100% stable APIs
         val exoPlayer = ExoPlayer.Builder(this)
             .setAudioAttributes(audioAttributes, true)
             .setHandleAudioBecomingNoisy(true) // Automatically pause when headphones disconnect
-            .setSeekBackIncrementMs(10.seconds.inWholeMilliseconds)   // 10s Rewind
-            .setSeekForwardIncrementMs(30.seconds.inWholeMilliseconds) // 30s Fast-Forward
             .build()
         player = exoPlayer
 
@@ -97,7 +81,6 @@ class PodcastPlaybackService : MediaLibraryService() {
         // Start memory position ticker and observe playback manager for queue/cold start loading
         startMemoryTicker()
         observePlaybackManager()
-        mediaLibrarySession?.setCustomLayout(ImmutableList.of(skipNextButton))
     }
 
     /**
@@ -274,6 +257,7 @@ class PodcastPlaybackService : MediaLibraryService() {
 
     /**
      * Serves the 3-Tier Media Tree navigation for Android Auto dashboard integration.
+     * Uses 100% stable Media3 APIs.
      */
     private inner class AndroidAutoTreeCallback : MediaLibrarySession.Callback {
 
@@ -312,35 +296,8 @@ class PodcastPlaybackService : MediaLibraryService() {
             session: MediaSession,
             controller: MediaSession.ControllerInfo
         ): MediaSession.ConnectionResult {
-            val connectionResult = super.onConnect(session, controller)
-
-            val sessionCommands = connectionResult.availableSessionCommands.buildUpon()
-                .add(skipNextCommand)
-                .build()
-
-            return MediaSession.ConnectionResult.accept(
-                sessionCommands,
-                connectionResult.availablePlayerCommands
-            )
-        }
-
-        override fun onCustomCommand(
-            session: MediaSession,
-            controller: MediaSession.ControllerInfo,
-            customCommand: SessionCommand,
-            args: Bundle
-        ): ListenableFuture<SessionResult> {
-            if (customCommand.customAction == ACTION_SKIP_NEXT) {
-                val currentMediaId = player?.currentMediaItem?.mediaId
-                serviceScope.launch {
-                    val nextEpisode = repository.getNextEpisodeToPlay(currentMediaId)
-                    if (nextEpisode != null) {
-                        prepareAndSeekEpisode(nextEpisode.id, autoPlay = true)
-                    }
-                }
-                return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
-            }
-            return super.onCustomCommand(session, controller, customCommand, args)
+            // Standard ConnectionResult.accept using pure stable session & player commands
+            return super.onConnect(session, controller)
         }
 
         override fun onGetLibraryRoot(

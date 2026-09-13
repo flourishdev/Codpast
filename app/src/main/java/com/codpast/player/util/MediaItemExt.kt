@@ -8,31 +8,27 @@ import com.codpast.player.data.local.entity.EpisodeEntity
 import com.codpast.player.data.local.entity.PodcastEntity
 
 /**
- * Single source of truth helper for building a fully populated Media3 MediaItem
- * containing MediaMetadata required for Android System Notification, Bluetooth AVRCP, and MiniPlayer.
- * Supports both online HTTP streams and offline file:// URIs.
+ * Converts local Room EpisodeEntity and optional PodcastEntity to a pure stable Media3 MediaItem.
+ * Uses 100% stable AndroidX Media3 APIs (no @UnstableApi required).
  */
-fun EpisodeEntity.toMediaItem(podcast: PodcastEntity? = null): MediaItem {
-    val podcastTitle = podcast?.title?.takeIf { it.isNotBlank() } ?: "Podcast Episode"
+fun EpisodeEntity.toMediaItem(podcast: PodcastEntity?): MediaItem {
+    // Resolve artwork with fallback for blank strings
+    val artworkUrl = imageUrl.takeIf { it.isNotBlank() }
+        ?: podcast?.artworkUrl?.takeIf { it.isNotBlank() }
 
     val metadata = MediaMetadata.Builder()
         .setTitle(title)
-        .setArtist(podcastTitle)
-        .setAlbumTitle(podcastTitle)
-        .setArtworkUri((imageUrl ?: podcast?.artworkUrl)?.takeIf { it.isNotEmpty() }?.toUri())
+        .setArtist(podcast?.title ?: "Podcast")
+        .setAlbumTitle(podcast?.title ?: "Podcast")
+        .setDescription(description)
+        .setArtworkUri(artworkUrl?.let { it.toUri() })
         .setIsPlayable(true)
+        .setIsBrowsable(false)
         .build()
-
-    // Safely parse URI scheme whether online (http/https) or local file (file://)
-    val parsedMediaUri = if (audioUrl.startsWith("content://") || audioUrl.startsWith("file://") || audioUrl.startsWith("http://") || audioUrl.startsWith("https://")) {
-        Uri.parse(audioUrl)
-    } else {
-        Uri.parse("file://$audioUrl")
-    }
 
     return MediaItem.Builder()
         .setMediaId(id)
-        .setUri(parsedMediaUri)
+        .setUri(audioUrl)
         .setMediaMetadata(metadata)
         .build()
 }
