@@ -2,15 +2,22 @@ package com.codpast.player.service
 
 import android.content.Intent
 import android.net.Uri
+import android.os.Bundle
+import androidx.core.net.toUri
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.session.CommandButton
 import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionResult
+import com.codpast.player.R
+import com.codpast.player.data.local.entity.DownloadStatus
 import com.codpast.player.data.local.entity.EpisodeEntity
 import com.codpast.player.data.repository.PlaybackProgressManager
 import com.codpast.player.data.repository.PodcastRepository
@@ -28,14 +35,8 @@ import kotlinx.coroutines.guava.future
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import javax.inject.Inject
 import java.io.File
-import com.codpast.player.R
-import android.os.Bundle
-import androidx.core.net.toUri
-import androidx.media3.session.CommandButton
-import androidx.media3.session.SessionCommand
-import androidx.media3.session.SessionResult
+import javax.inject.Inject
 import kotlin.time.Duration.Companion.seconds
 
 const val ACTION_SKIP_NEXT = "com.codpast.player.SKIP_NEXT"
@@ -54,7 +55,7 @@ class PodcastPlaybackService : MediaLibraryService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private lateinit var playerListener: Player.Listener
 
-
+    private var isInitialColdStart = true
 
     private val skipNextCommand = SessionCommand(ACTION_SKIP_NEXT, Bundle.EMPTY)
     private val skipNextButton by lazy {
@@ -86,7 +87,6 @@ class PodcastPlaybackService : MediaLibraryService() {
         playerListener = createPlayerListener(exoPlayer)
         exoPlayer.addListener(playerListener)
 
-
         // Construct the MediaLibrarySession for system & Android Auto integration
         mediaLibrarySession = MediaLibrarySession.Builder(
             this,
@@ -94,33 +94,69 @@ class PodcastPlaybackService : MediaLibraryService() {
             AndroidAutoTreeCallback()
         ).build()
 
-        // Start the 500ms ticker for smooth UI position updates
+        // Start memory position ticker and observe playback manager for queue/cold start loading
         startMemoryTicker()
         observePlaybackManager()
         mediaLibrarySession?.setCustomLayout(ImmutableList.of(skipNextButton))
+    }
 
-        serviceScope.launch {
-            val queueSnapshot = repository.getQueueSnapshotWithEpisodes()
-            val topEpisode = queueSnapshot.firstOrNull { !it.isCompleted }
-            if (topEpisode != null && player?.playbackState == Player.STATE_IDLE) {
-                prepareAndSeekEpisode(topEpisode.id)
+    /**
+     * Unified suspending helper to fetch episode, resolve local download paths,
+     * attach full podcast metadata, restore saved position, and prepare ExoPlayer.
+     */
+    private suspend fun prepareAndSeekEpisode(
+        episodeId: String,
+        autoPlay: Boolean = false
+    ) {
+        val ep = repository.getEpisodeByIdSnapshot(episodeId) ?: return
+        if (ep.audioUrl.isNullOrEmpty()) return
+
+        // Resolve local downloaded file vs remote URL
+        val download = repository.getDownloadForEpisodeSnapshot(ep.id)
+        val finalAudioUrl = if (download?.status == DownloadStatus.COMPLETED) {
+            val localFile = File(download.localPath)
+            if (localFile.exists() && localFile.length() > 0) {
+                Uri.fromFile(localFile).toString()
+            } else {
+                ep.audioUrl
+            }
+        } else {
+            ep.audioUrl
+        }
+
+        val playableEpisode = ep.copy(audioUrl = finalAudioUrl)
+        val podcast = repository.getPodcastByIdSnapshot(ep.podcastId)
+        val mediaItem = playableEpisode.toMediaItem(podcast)
+
+        withContext(Dispatchers.Main) {
+            player?.apply {
+                if (currentMediaItem?.mediaId != mediaItem.mediaId) {
+                    stop()
+                    setMediaItem(mediaItem)
+                    if (ep.playbackPosition > 0L && !ep.isCompleted) {
+                        seekTo(ep.playbackPosition)
+                    }
+                    prepare()
+                    playWhenReady = autoPlay
+                } else if (playbackState == Player.STATE_IDLE) {
+                    prepare()
+                    playWhenReady = autoPlay
+                }
             }
         }
     }
 
-    private fun prepareAndSeekEpisode(episodeId: String) {
+    private fun observePlaybackManager() {
         serviceScope.launch {
-            val episode = repository.getEpisodeByIdSnapshot(episodeId) ?: return@launch
-            val podcast = repository.getPodcastByIdSnapshot(episode.podcastId)
-            val mediaItem = episode.toMediaItem(podcast)
-
-            withContext(Dispatchers.Main) {
-                player?.apply {
-                    setMediaItem(mediaItem)
-                    if (episode.playbackPosition > 0L && !episode.isCompleted) {
-                        seekTo(episode.playbackPosition)
+            progressManager.currentEpisode.collect { episode: EpisodeEntity? ->
+                episode?.let { ep ->
+                    val shouldAutoPlay = if (isInitialColdStart) {
+                        isInitialColdStart = false
+                        false
+                    } else {
+                        true
                     }
-                    prepare()
+                    prepareAndSeekEpisode(ep.id, autoPlay = shouldAutoPlay)
                 }
             }
         }
@@ -147,18 +183,14 @@ class PodcastPlaybackService : MediaLibraryService() {
                             // 1. Mark finished and remove from queue
                             repository.markCompletedAndRemoveFromQueue(currentMediaId)
 
-                            // 2. Resolve next episode
+                            // 2. Figure out what to play next using wrap-around
                             val nextEpisode = repository.getNextEpisodeToPlay(currentMediaId)
 
-                            // Defensive check: Service active & player instance matches
+                            // Defensive check: Service might be destroying, or player instance changed
                             if (!isActive || player != exoPlayer) return@launch
 
                             if (nextEpisode != null) {
-                                // 3. Use prepareAndSeekEpisode to load next item with restored position & metadata
-                                prepareAndSeekEpisode(nextEpisode.id)
-                                withContext(Dispatchers.Main) {
-                                    exoPlayer.play()
-                                }
+                                prepareAndSeekEpisode(nextEpisode.id, autoPlay = true)
                             } else {
                                 withContext(Dispatchers.Main) {
                                     exoPlayer.stop()
@@ -183,8 +215,7 @@ class PodcastPlaybackService : MediaLibraryService() {
             }
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                // Immediate flush when switching episodes
-                progressManager.triggerImmediateFlush()
+                // Immediate flush during item transition omitted to avoid 0L overwrite on initial load
             }
         }
     }
@@ -261,14 +292,32 @@ class PodcastPlaybackService : MediaLibraryService() {
             title = "Downloads",
             iconResId = R.drawable.ic_launcher_foreground
         )
+
+        private fun buildBrowsableMediaItem(id: String, title: String, iconResId: Int): MediaItem {
+            val iconUri = "android.resource://$packageName/$iconResId".toUri()
+            return MediaItem.Builder()
+                .setMediaId(id)
+                .setMediaMetadata(
+                    MediaMetadata.Builder()
+                        .setIsBrowsable(true)
+                        .setIsPlayable(false)
+                        .setTitle(title)
+                        .setArtworkUri(iconUri)
+                        .build()
+                )
+                .build()
+        }
+
         override fun onConnect(
             session: MediaSession,
             controller: MediaSession.ControllerInfo
         ): MediaSession.ConnectionResult {
             val connectionResult = super.onConnect(session, controller)
+
             val sessionCommands = connectionResult.availableSessionCommands.buildUpon()
                 .add(skipNextCommand)
                 .build()
+
             return MediaSession.ConnectionResult.accept(
                 sessionCommands,
                 connectionResult.availablePlayerCommands
@@ -286,33 +335,12 @@ class PodcastPlaybackService : MediaLibraryService() {
                 serviceScope.launch {
                     val nextEpisode = repository.getNextEpisodeToPlay(currentMediaId)
                     if (nextEpisode != null) {
-                        withContext(Dispatchers.Main) {
-                            player?.apply {
-                                setMediaItem(nextEpisode.toMediaItem(null))
-                                prepare()
-                                play()
-                            }
-                        }
+                        prepareAndSeekEpisode(nextEpisode.id, autoPlay = true)
                     }
                 }
                 return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
             }
             return super.onCustomCommand(session, controller, customCommand, args)
-        }
-
-        private fun buildBrowsableMediaItem(id: String, title: String, iconResId: Int): MediaItem {
-            val iconUri = "android.resource://$packageName/$iconResId".toUri()
-            return MediaItem.Builder()
-                .setMediaId(id)
-                .setMediaMetadata(
-                    MediaMetadata.Builder()
-                        .setIsBrowsable(true)
-                        .setIsPlayable(false)
-                        .setTitle(title)
-                        .setArtworkUri(iconUri)
-                        .build()
-                )
-                .build()
         }
 
         override fun onGetLibraryRoot(
@@ -379,69 +407,10 @@ class PodcastPlaybackService : MediaLibraryService() {
                     LibraryResult.ofItemList(ImmutableList.copyOf(mediaItems), params)
                 }
                 else -> serviceScope.future {
-                    // Dynamic lookup: parentId is a Podcast ID!
                     val episodes = repository.getEpisodesForPodcastSnapshot(parentId)
                     val podcast = repository.getPodcastByIdSnapshot(parentId)
                     val mediaItems = episodes.map { ep -> ep.toMediaItem(podcast) }
                     LibraryResult.ofItemList(ImmutableList.copyOf(mediaItems), params)
-                }
-            }
-        }
-    }
-
-    private var isInitialColdStart = true
-
-    private fun observePlaybackManager() {
-        serviceScope.launch {
-            progressManager.currentEpisode.collect { episode: EpisodeEntity? ->
-                episode?.let { ep ->
-                    player?.let { exoPlayer ->
-                        val currentMediaId = exoPlayer.currentMediaItem?.mediaId
-                        if (currentMediaId != ep.id && !ep.audioUrl.isNullOrEmpty()) {
-                            // Immediately stop playback before swapping items to prevent progress ticker race
-                            exoPlayer.stop()
-
-                            // Check if episode is downloaded locally on disk
-                            val download = repository.getDownloadForEpisodeSnapshot(ep.id)
-                            val finalAudioUrl = if (download?.status == com.codpast.player.data.local.entity.DownloadStatus.COMPLETED) {
-                                val localFile = File(download.localPath)
-                                if (localFile.exists() && localFile.length() > 0) {
-                                    Uri.fromFile(localFile).toString()
-                                } else {
-                                    ep.audioUrl
-                                }
-                            } else {
-                                ep.audioUrl
-                            }
-
-                            val playableEpisode = ep.copy(audioUrl = finalAudioUrl)
-
-                            // Synchronously fetch parent podcast to populate artist and artwork in MediaMetadata
-                            val podcast = repository.getPodcastByIdSnapshot(ep.podcastId)
-
-                            // Defensive check: Coroutine might have suspended, check if we should still proceed
-                            if (!isActive || player != exoPlayer) return@collect
-
-                            val mediaItem = playableEpisode.toMediaItem(podcast)
-
-                            exoPlayer.setMediaItem(mediaItem)
-
-                            // Seek to saved position from Room SSOT
-                            if (ep.playbackPosition > 0L) {
-                                exoPlayer.seekTo(ep.playbackPosition)
-                            }
-
-                            exoPlayer.prepare()
-
-                            // Autoplay on user action; stay paused on initial cold start restoration
-                            if (isInitialColdStart) {
-                                isInitialColdStart = false
-                                exoPlayer.playWhenReady = false
-                            } else {
-                                exoPlayer.play()
-                            }
-                        }
-                    }
                 }
             }
         }

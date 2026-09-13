@@ -30,12 +30,12 @@ import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
-import androidx.navigation.compose.currentBackStackEntryAsState
-import androidx.navigation.compose.rememberNavController
+import androidx.navigation.compose.currentBackStackEntryAsState import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.codpast.player.ui.components.MiniPlayerBar
 import com.codpast.player.ui.screens.EpisodeDetailScreen
 import com.codpast.player.ui.screens.ListenScreen
+import com.codpast.player.ui.screens.PlayerViewModel
 import com.codpast.player.ui.screens.PodcastDetailScreen
 import com.codpast.player.ui.screens.QueueScreen
 import com.codpast.player.ui.screens.QueueViewModel
@@ -54,6 +54,9 @@ sealed class BottomRoute(val route: String, val title: String, val icon: ImageVe
 @Composable
 fun AppNavigationHost() {
     val navController = rememberNavController()
+    // Single shared instance for both ListenScreen and MiniPlayerBar
+    val playerViewModel: PlayerViewModel = hiltViewModel()
+
     val bottomTabs = listOf(
         BottomRoute.Listen,
         BottomRoute.Queue,
@@ -106,7 +109,9 @@ fun AppNavigationHost() {
                     startDestination = BottomRoute.Listen.route,
                     modifier = Modifier.weight(1f)
                 ) {
-                    composable(BottomRoute.Listen.route) { ListenScreen() }
+                    composable(BottomRoute.Listen.route) {
+                        ListenScreen(viewModel = playerViewModel)
+                    }
                     composable(BottomRoute.Queue.route) {
                         val queueViewModel: QueueViewModel = hiltViewModel()
                         QueueScreen(viewModel = queueViewModel)
@@ -185,6 +190,7 @@ fun AppNavigationHost() {
                 }
 
                 MiniPlayerBar(
+                    viewModel = playerViewModel,
                     onNavigateToListen = {
                         navController.navigate(BottomRoute.Listen.route) {
                             popUpTo(navController.graph.findStartDestination().id) { saveState = true }
@@ -229,7 +235,9 @@ fun AppNavigationHost() {
                     startDestination = BottomRoute.Listen.route,
                     modifier = Modifier.weight(1f)
                 ) {
-                    composable(BottomRoute.Listen.route) { ListenScreen() }
+                    composable(BottomRoute.Listen.route) {
+                        ListenScreen(viewModel = playerViewModel)
+                    }
                     composable(BottomRoute.Queue.route) {
                         val queueViewModel: QueueViewModel = hiltViewModel()
                         QueueScreen(viewModel = queueViewModel)
@@ -308,6 +316,7 @@ fun AppNavigationHost() {
                 }
 
                 MiniPlayerBar(
+                    viewModel = playerViewModel,
                     onNavigateToListen = {
                         navController.navigate(BottomRoute.Listen.route) {
                             popUpTo(navController.graph.findStartDestination().id) { saveState = true }

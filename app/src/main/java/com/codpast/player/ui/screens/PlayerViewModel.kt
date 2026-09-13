@@ -13,6 +13,7 @@ import com.codpast.player.data.repository.PodcastRepository
 import com.codpast.player.service.PodcastPlaybackService
 import com.codpast.player.ui.mvi.PlayerIntent
 import com.codpast.player.ui.mvi.PlayerUiState
+import com.codpast.player.util.toMediaItem
 import com.google.common.util.concurrent.ListenableFuture
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -36,7 +37,6 @@ class PlayerViewModel @Inject constructor(
     private val _state = MutableStateFlow(PlayerUiState())
     val state: StateFlow<PlayerUiState> = _state.asStateFlow()
 
-    // The bridge to our background service
     private var mediaControllerFuture: ListenableFuture<MediaController>? = null
     private var mediaController: MediaController? = null
 
@@ -65,16 +65,12 @@ class PlayerViewModel @Inject constructor(
     }
 
     private fun initializeController() {
-        // 1. Point the token to our specific PodcastPlaybackService
         val sessionToken = SessionToken(
             context,
             ComponentName(context, PodcastPlaybackService::class.java)
         )
 
-        // 2. Build the controller asynchronously
         mediaControllerFuture = MediaController.Builder(context, sessionToken).buildAsync()
-
-        // 3. Wait for it to connect, then set up our listeners
         mediaControllerFuture?.addListener({
             mediaController = mediaControllerFuture?.get()
             setupPlayerListener()
@@ -82,15 +78,12 @@ class PlayerViewModel @Inject constructor(
     }
 
     private fun setupPlayerListener() {
-        // 1. Grab the currently playing item immediately upon connection (in case it's already playing)
         updateCurrentMediaItem(mediaController?.currentMediaItem)
 
         mediaController?.addListener(object : Player.Listener {
             override fun onEvents(player: Player, events: Player.Events) {
                 _state.update {
-                    it.copy(
-                        isPlaying = player.isPlaying
-                    )
+                    it.copy(isPlaying = player.isPlaying)
                 }
             }
 
@@ -108,7 +101,6 @@ class PlayerViewModel @Inject constructor(
                 }
             }
 
-            // 2. Listen for track changes to update MiniPlayer artwork and title
             override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
                 updateCurrentMediaItem(mediaItem)
             }
@@ -129,7 +121,6 @@ class PlayerViewModel @Inject constructor(
         val episodeId = mediaItem.mediaId
 
         viewModelScope.launch {
-            // Attempt to fetch real entities from Room SSOT using episodeId
             val realEpisode = repository.getEpisodeByIdSnapshot(episodeId)
             val realPodcast = realEpisode?.podcastId?.let { repository.getPodcastByIdSnapshot(it) }
 
@@ -142,7 +133,6 @@ class PlayerViewModel @Inject constructor(
                     )
                 }
             } else {
-                // Fallback for external URIs using MediaMetadata payload
                 val metadata = mediaItem.mediaMetadata
 
                 val fallbackEpisode = com.codpast.player.data.local.entity.EpisodeEntity(
@@ -192,36 +182,66 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun onIntent(intent: PlayerIntent) {
+        val controller = mediaController
         when (intent) {
             is PlayerIntent.TogglePlayPause -> {
-                if (mediaController?.isPlaying == true) {
-                    mediaController?.pause()
+                if (controller == null) return
+                if (controller.currentMediaItem == null) {
+                    // Cold-launch fallback: fetch top uncompleted queue episode from Room
+                    viewModelScope.launch {
+                        val queueSnapshot = repository.getQueueSnapshotWithEpisodes()
+                        val topEpisode = queueSnapshot.firstOrNull { !it.isCompleted }
+                        if (topEpisode != null) {
+                            val podcast = repository.getPodcastByIdSnapshot(topEpisode.podcastId)
+                            val mediaItem = topEpisode.toMediaItem(podcast)
+                            controller.setMediaItem(mediaItem)
+                            if (topEpisode.playbackPosition > 0L) {
+                                controller.seekTo(topEpisode.playbackPosition)
+                            }
+                            controller.prepare()
+                            controller.play()
+                        }
+                    }
                 } else {
-                    mediaController?.play()
+                    if (controller.playbackState == Player.STATE_IDLE) {
+                        controller.prepare()
+                    }
+                    if (controller.isPlaying) {
+                        controller.pause()
+                    } else {
+                        controller.play()
+                    }
                 }
             }
+
             is PlayerIntent.SeekTo -> {
-                mediaController?.seekTo(intent.positionMs)
+                controller?.seekTo(intent.positionMs)
                 _state.update { it.copy(currentPositionMs = intent.positionMs) }
             }
+
             is PlayerIntent.SkipForward -> {
-                val current = mediaController?.currentPosition ?: 0L
-                val duration = mediaController?.duration ?: 0L
-                val newPos = (current + intent.ms).coerceAtMost(duration)
-                mediaController?.seekTo(newPos)
+                val current = controller?.currentPosition ?: 0L
+                val duration = controller?.duration ?: 0L
+                val skipMs = if (intent.ms > 0L) intent.ms else 30000L
+                val newPos = (current + skipMs).coerceAtMost(duration)
+                controller?.seekTo(newPos)
             }
+
             is PlayerIntent.SkipBackward -> {
-                val current = mediaController?.currentPosition ?: 0L
-                val newPos = (current - intent.ms).coerceAtLeast(0L)
-                mediaController?.seekTo(newPos)
+                val current = controller?.currentPosition ?: 0L
+                val skipMs = if (intent.ms > 0L) intent.ms else 10000L
+                val newPos = (current - skipMs).coerceAtLeast(0L)
+                controller?.seekTo(newPos)
             }
+
             is PlayerIntent.SetSpeed -> {
-                mediaController?.playbackParameters = PlaybackParameters(intent.speed)
+                controller?.playbackParameters = PlaybackParameters(intent.speed)
                 _state.update { it.copy(playbackSpeed = intent.speed) }
             }
+
             is PlayerIntent.SkipToNext -> {
-                if (mediaController?.hasNextMediaItem() == true) {
-                    mediaController?.seekToNextMediaItem()
+                if (controller?.hasNextMediaItem() == true) {
+                    controller.seekToNextMediaItem()
                 } else {
                     viewModelScope.launch {
                         val currentId = _state.value.currentEpisode?.id
@@ -235,14 +255,8 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
-//    override fun onCleared() {
-//        super.onCleared()
-//        mediaControllerFuture?.let { MediaController.releaseFuture(it) }
-//    }
-
     override fun onCleared() {
         super.onCleared()
-        // Explicitly release the ListenableFuture wrapper as required by Media3 lifecycle rules
         mediaControllerFuture?.let { future ->
             MediaController.releaseFuture(future)
         }
