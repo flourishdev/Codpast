@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
@@ -30,7 +29,8 @@ import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
-import androidx.navigation.compose.currentBackStackEntryAsState import androidx.navigation.compose.rememberNavController
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.codpast.player.ui.components.MiniPlayerBar
 import com.codpast.player.ui.screens.EpisodeDetailScreen
@@ -43,10 +43,11 @@ import com.codpast.player.ui.screens.SearchScreen
 import com.codpast.player.ui.screens.SubscriptionsScreen
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
+import androidx.compose.material.icons.automirrored.filled.List
 
 sealed class BottomRoute(val route: String, val title: String, val icon: ImageVector) {
     object Listen : BottomRoute("listen", "Listen", Icons.Default.PlayArrow)
-    object Queue : BottomRoute("queue", "Queue", Icons.Default.List)
+    object Queue : BottomRoute("queue", "Queue", Icons.AutoMirrored.Filled.List)
     object Subscriptions : BottomRoute("subscriptions", "Follows", Icons.Default.Star)
     object Search : BottomRoute("search", "Search", Icons.Default.Search)
 }
@@ -68,6 +69,9 @@ fun AppNavigationHost() {
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
+
+    // Hide MiniPlayerBar when the full-screen player (ListenScreen) is visible
+    val showMiniPlayer = currentRoute != BottomRoute.Listen.route
 
     if (isLandscape) {
         // Adaptive Landscape Layout: Left-Docked NavigationRail + Content Area
@@ -189,16 +193,18 @@ fun AppNavigationHost() {
                     }
                 }
 
-                MiniPlayerBar(
-                    viewModel = playerViewModel,
-                    onNavigateToListen = {
-                        navController.navigate(BottomRoute.Listen.route) {
-                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
+                if (showMiniPlayer) {
+                    MiniPlayerBar(
+                        viewModel = playerViewModel,
+                        onNavigateToListen = {
+                            navController.navigate(BottomRoute.Listen.route) {
+                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
                         }
-                    }
-                )
+                    )
+                }
             }
         }
     } else {
@@ -315,16 +321,18 @@ fun AppNavigationHost() {
                     }
                 }
 
-                MiniPlayerBar(
-                    viewModel = playerViewModel,
-                    onNavigateToListen = {
-                        navController.navigate(BottomRoute.Listen.route) {
-                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
+                if (showMiniPlayer) {
+                    MiniPlayerBar(
+                        viewModel = playerViewModel,
+                        onNavigateToListen = {
+                            navController.navigate(BottomRoute.Listen.route) {
+                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
                         }
-                    }
-                )
+                    )
+                }
             }
         }
     }

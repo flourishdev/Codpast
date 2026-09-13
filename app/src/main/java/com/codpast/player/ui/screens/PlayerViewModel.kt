@@ -72,15 +72,34 @@ class PlayerViewModel @Inject constructor(
 
         mediaControllerFuture = MediaController.Builder(context, sessionToken).buildAsync()
         mediaControllerFuture?.addListener({
-            mediaController = mediaControllerFuture?.get()
-            setupPlayerListener()
+            try {
+                mediaController = mediaControllerFuture?.get()
+                setupPlayerListener()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }, ContextCompat.getMainExecutor(context))
     }
 
     private fun setupPlayerListener() {
-        updateCurrentMediaItem(mediaController?.currentMediaItem)
+        val controller = mediaController ?: return
+        updateCurrentMediaItem(controller.currentMediaItem)
 
-        mediaController?.addListener(object : Player.Listener {
+        // Initial state sync
+        _state.update {
+            it.copy(
+                isPlaying = controller.isPlaying,
+                isBuffering = controller.playbackState == Player.STATE_BUFFERING,
+                isPreparing = controller.playbackState == Player.STATE_BUFFERING,
+                durationMs = if (controller.playbackState == Player.STATE_READY) controller.duration.coerceAtLeast(0L) else it.durationMs
+            )
+        }
+
+        controller.addListener(object : Player.Listener {
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                _state.update { it.copy(isPlaying = isPlaying) }
+            }
+
             override fun onEvents(player: Player, events: Player.Events) {
                 _state.update {
                     it.copy(isPlaying = player.isPlaying)
@@ -129,7 +148,7 @@ class PlayerViewModel @Inject constructor(
                     it.copy(
                         currentEpisode = realEpisode,
                         currentPodcast = realPodcast,
-                        durationMs = mediaController?.duration?.coerceAtLeast(0L) ?: 0L
+                        durationMs = if (realEpisode.duration > 0L) realEpisode.duration else (mediaController?.duration?.coerceAtLeast(0L) ?: 0L)
                     )
                 }
             } else {
@@ -172,11 +191,15 @@ class PlayerViewModel @Inject constructor(
         viewModelScope.launch {
             while (true) {
                 if (_state.value.isPlaying) {
+                    val currentPos = mediaController?.currentPosition?.coerceAtLeast(0L) ?: 0L
                     _state.update {
-                        it.copy(currentPositionMs = mediaController?.currentPosition?.coerceAtLeast(0L) ?: 0L)
+                        it.copy(currentPositionMs = currentPos)
+                    }
+                    _state.value.currentEpisode?.id?.let { epId ->
+                        repository.updatePlaybackPosition(epId, currentPos)
                     }
                 }
-                delay(1000L)
+                delay(500L)
             }
         }
     }
@@ -190,13 +213,13 @@ class PlayerViewModel @Inject constructor(
                     // Cold-launch fallback: fetch top uncompleted queue episode from Room
                     viewModelScope.launch {
                         val queueSnapshot = repository.getQueueSnapshotWithEpisodes()
-                        val topEpisode = queueSnapshot.firstOrNull { !it.isCompleted }
-                        if (topEpisode != null) {
-                            val podcast = repository.getPodcastByIdSnapshot(topEpisode.podcastId)
-                            val mediaItem = topEpisode.toMediaItem(podcast)
+                        val topItem = queueSnapshot.firstOrNull { !it.isCompleted }
+                        if (topItem != null) {
+                            val podcast = repository.getPodcastByIdSnapshot(topItem.podcastId)
+                            val mediaItem = topItem.toMediaItem(podcast)
                             controller.setMediaItem(mediaItem)
-                            if (topEpisode.playbackPosition > 0L) {
-                                controller.seekTo(topEpisode.playbackPosition)
+                            if (topItem.playbackPosition > 0L) {
+                                controller.seekTo(topItem.playbackPosition)
                             }
                             controller.prepare()
                             controller.play()

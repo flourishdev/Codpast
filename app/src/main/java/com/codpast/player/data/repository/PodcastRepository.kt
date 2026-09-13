@@ -337,4 +337,8 @@ class PodcastRepository @Inject constructor(
     suspend fun getAllCompletedDownloadsSnapshot(): List<DownloadEntity> {
         return podcastDao.getAllCompletedDownloadsSnapshot()
     }
+
+    suspend fun updatePlaybackPosition(episodeId: String, position: Long) {
+        podcastDao.updatePlaybackPosition(episodeId, position)
+    }
 }
