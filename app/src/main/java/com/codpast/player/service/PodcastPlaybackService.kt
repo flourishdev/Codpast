@@ -30,10 +30,15 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import java.io.File
-import androidx.media3.session.MediaLibraryService.LibraryParams
-import androidx.media3.session.MediaLibraryService.MediaLibrarySession
-import com.codpast.player.util.toMediaItem
-import kotlinx.coroutines.guava.future
+import com.codpast.player.R
+import android.os.Bundle
+import androidx.core.net.toUri
+import androidx.media3.session.CommandButton
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionResult
+import kotlin.time.Duration.Companion.seconds
+
+const val ACTION_SKIP_NEXT = "com.codpast.player.SKIP_NEXT"
 
 @AndroidEntryPoint
 class PodcastPlaybackService : MediaLibraryService() {
@@ -49,36 +54,48 @@ class PodcastPlaybackService : MediaLibraryService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private lateinit var playerListener: Player.Listener
 
+    private val skipNextCommand = SessionCommand(ACTION_SKIP_NEXT, Bundle.EMPTY)
+    private val skipNextButton by lazy {
+        CommandButton.Builder(CommandButton.ICON_NEXT)
+            .setDisplayName(getString(R.string.skip_next))
+            .setSessionCommand(skipNextCommand)
+            .build()
+    }
+
     override fun onCreate() {
         super.onCreate()
 
-        // 1. Configure ExoPlayer explicitly for spoken audio (pitch-preserved speech)
+        // Configure ExoPlayer explicitly for spoken audio (pitch-preserved speech)
         val audioAttributes = AudioAttributes.Builder()
             .setContentType(C.AUDIO_CONTENT_TYPE_SPEECH)
             .setUsage(C.USAGE_MEDIA)
             .build()
 
+        // Configure ExoPlayer with 10s rewind / 30s fast-forward increments
         val exoPlayer = ExoPlayer.Builder(this)
             .setAudioAttributes(audioAttributes, true)
             .setHandleAudioBecomingNoisy(true) // Automatically pause when headphones disconnect
+            .setSeekBackIncrementMs(10.seconds.inWholeMilliseconds)   // 10s Rewind
+            .setSeekForwardIncrementMs(30.seconds.inWholeMilliseconds) // 30s Fast-Forward
             .build()
-
         player = exoPlayer
 
-        // 2. Attach lifecycle listeners for progress persistence triggers
+        // Attach lifecycle listeners for progress persistence triggers
         playerListener = createPlayerListener(exoPlayer)
         exoPlayer.addListener(playerListener)
 
-        // 3. Construct the MediaLibrarySession for system & Android Auto integration
+
+        // Construct the MediaLibrarySession for system & Android Auto integration
         mediaLibrarySession = MediaLibrarySession.Builder(
             this,
             exoPlayer,
             AndroidAutoTreeCallback()
         ).build()
 
-        // 4. Start the 500ms ticker for smooth UI position updates
+        // Start the 500ms ticker for smooth UI position updates
         startMemoryTicker()
         observePlaybackManager()
+        mediaLibrarySession?.setCustomLayout(ImmutableList.of(skipNextButton))
     }
 
     private fun createPlayerListener(exoPlayer: ExoPlayer): Player.Listener {
@@ -152,7 +169,7 @@ class PodcastPlaybackService : MediaLibraryService() {
                         progressManager.updateProgress(activeId, activePlayer.currentPosition)
                     }
                 }
-                delay(500L)
+                delay(duration = 5.seconds)
             }
         }
     }
@@ -200,35 +217,74 @@ class PodcastPlaybackService : MediaLibraryService() {
      */
     private inner class AndroidAutoTreeCallback : MediaLibrarySession.Callback {
 
-        private val subscribedItem = MediaItem.Builder()
-            .setMediaId("tier_subscriptions")
-            .setMediaMetadata(
-                MediaMetadata.Builder()
-                    .setIsBrowsable(true)
-                    .setIsPlayable(false)
-                    .setTitle("Subscribed Podcasts")
-                    .build()
-            ).build()
+        private val subscribedItem = buildBrowsableMediaItem(
+            id = "tier_subscriptions",
+            title = "Follows",
+            iconResId = R.drawable.ic_launcher_foreground
+        )
+        private val upNextItem = buildBrowsableMediaItem(
+            id = "tier_up_next",
+            title = "Queue",
+            iconResId = R.drawable.ic_launcher_foreground
+        )
+        private val downloadedItem = buildBrowsableMediaItem(
+            id = "tier_downloads",
+            title = "Downloads",
+            iconResId = R.drawable.ic_launcher_foreground
+        )
+        override fun onConnect(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo
+        ): MediaSession.ConnectionResult {
+            val connectionResult = super.onConnect(session, controller)
+            val sessionCommands = connectionResult.availableSessionCommands.buildUpon()
+                .add(skipNextCommand)
+                .build()
+            return MediaSession.ConnectionResult.accept(
+                sessionCommands,
+                connectionResult.availablePlayerCommands
+            )
+        }
 
-        private val upNextItem = MediaItem.Builder()
-            .setMediaId("tier_up_next")
-            .setMediaMetadata(
-                MediaMetadata.Builder()
-                    .setIsBrowsable(true)
-                    .setIsPlayable(false)
-                    .setTitle("Up Next Queue")
-                    .build()
-            ).build()
+        override fun onCustomCommand(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            customCommand: SessionCommand,
+            args: Bundle
+        ): ListenableFuture<SessionResult> {
+            if (customCommand.customAction == ACTION_SKIP_NEXT) {
+                val currentMediaId = player?.currentMediaItem?.mediaId
+                serviceScope.launch {
+                    val nextEpisode = repository.getNextEpisodeToPlay(currentMediaId)
+                    if (nextEpisode != null) {
+                        withContext(Dispatchers.Main) {
+                            player?.apply {
+                                setMediaItem(nextEpisode.toMediaItem(null))
+                                prepare()
+                                play()
+                            }
+                        }
+                    }
+                }
+                return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+            }
+            return super.onCustomCommand(session, controller, customCommand, args)
+        }
 
-        private val downloadedItem = MediaItem.Builder()
-            .setMediaId("tier_downloads")
-            .setMediaMetadata(
-                MediaMetadata.Builder()
-                    .setIsBrowsable(true)
-                    .setIsPlayable(false)
-                    .setTitle("Downloaded Episodes")
-                    .build()
-            ).build()
+        private fun buildBrowsableMediaItem(id: String, title: String, iconResId: Int): MediaItem {
+            val iconUri = "android.resource://$packageName/$iconResId".toUri()
+            return MediaItem.Builder()
+                .setMediaId(id)
+                .setMediaMetadata(
+                    MediaMetadata.Builder()
+                        .setIsBrowsable(true)
+                        .setIsPlayable(false)
+                        .setTitle(title)
+                        .setArtworkUri(iconUri)
+                        .build()
+                )
+                .build()
+        }
 
         override fun onGetLibraryRoot(
             session: MediaLibrarySession,
@@ -269,7 +325,7 @@ class PodcastPlaybackService : MediaLibraryService() {
                                     .setIsBrowsable(true)
                                     .setIsPlayable(false)
                                     .setTitle(podcast.title)
-                                    .setArtworkUri(if (podcast.artworkUrl.isNotBlank()) Uri.parse(podcast.artworkUrl) else null)
+                                    .setArtworkUri(if (podcast.artworkUrl.isNotBlank()) podcast.artworkUrl.toUri() else null)
                                     .build()
                             ).build()
                     }
@@ -287,7 +343,7 @@ class PodcastPlaybackService : MediaLibraryService() {
                         val podcast = episode?.let { repository.getPodcastByIdSnapshot(it.podcastId) }
 
                         episode?.let { ep ->
-                            val localFileUri = Uri.fromFile(java.io.File(download.localPath)).toString()
+                            val localFileUri = Uri.fromFile(File(download.localPath)).toString()
                             ep.copy(audioUrl = localFileUri).toMediaItem(podcast)
                         }
                     }
@@ -348,7 +404,7 @@ class PodcastPlaybackService : MediaLibraryService() {
 
                             exoPlayer.prepare()
 
-                            // Auto-play on user action; stay paused on initial cold start restoration
+                            // Autoplay on user action; stay paused on initial cold start restoration
                             if (isInitialColdStart) {
                                 isInitialColdStart = false
                                 exoPlayer.playWhenReady = false
