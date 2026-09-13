@@ -54,6 +54,8 @@ class PodcastPlaybackService : MediaLibraryService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private lateinit var playerListener: Player.Listener
 
+
+
     private val skipNextCommand = SessionCommand(ACTION_SKIP_NEXT, Bundle.EMPTY)
     private val skipNextButton by lazy {
         CommandButton.Builder(CommandButton.ICON_NEXT)
@@ -96,6 +98,32 @@ class PodcastPlaybackService : MediaLibraryService() {
         startMemoryTicker()
         observePlaybackManager()
         mediaLibrarySession?.setCustomLayout(ImmutableList.of(skipNextButton))
+
+        serviceScope.launch {
+            val queueSnapshot = repository.getQueueSnapshotWithEpisodes()
+            val topEpisode = queueSnapshot.firstOrNull { !it.isCompleted }
+            if (topEpisode != null && player?.playbackState == Player.STATE_IDLE) {
+                prepareAndSeekEpisode(topEpisode.id)
+            }
+        }
+    }
+
+    private fun prepareAndSeekEpisode(episodeId: String) {
+        serviceScope.launch {
+            val episode = repository.getEpisodeByIdSnapshot(episodeId) ?: return@launch
+            val podcast = repository.getPodcastByIdSnapshot(episode.podcastId)
+            val mediaItem = episode.toMediaItem(podcast)
+
+            withContext(Dispatchers.Main) {
+                player?.apply {
+                    setMediaItem(mediaItem)
+                    if (episode.playbackPosition > 0L && !episode.isCompleted) {
+                        seekTo(episode.playbackPosition)
+                    }
+                    prepare()
+                }
+            }
+        }
     }
 
     private fun createPlayerListener(exoPlayer: ExoPlayer): Player.Listener {
@@ -116,22 +144,23 @@ class PodcastPlaybackService : MediaLibraryService() {
                     val currentMediaId = exoPlayer.currentMediaItem?.mediaId
                     if (currentMediaId != null) {
                         serviceScope.launch {
-                            // 1. Mark finished and remove
+                            // 1. Mark finished and remove from queue
                             repository.markCompletedAndRemoveFromQueue(currentMediaId)
 
-                            // 2. Figure out what to play next using wrap-around
+                            // 2. Resolve next episode
                             val nextEpisode = repository.getNextEpisodeToPlay(currentMediaId)
 
-                            // Defensive check: Service might be destroying, or player might have been replaced/released
+                            // Defensive check: Service active & player instance matches
                             if (!isActive || player != exoPlayer) return@launch
 
-                            withContext(Dispatchers.Main) {
-                                if (nextEpisode != null) {
-                                    val nextMediaItem = nextEpisode.toMediaItem(null)
-                                    exoPlayer.setMediaItem(nextMediaItem)
-                                    exoPlayer.prepare()
+                            if (nextEpisode != null) {
+                                // 3. Use prepareAndSeekEpisode to load next item with restored position & metadata
+                                prepareAndSeekEpisode(nextEpisode.id)
+                                withContext(Dispatchers.Main) {
                                     exoPlayer.play()
-                                } else {
+                                }
+                            } else {
+                                withContext(Dispatchers.Main) {
                                     exoPlayer.stop()
                                 }
                             }
